@@ -1,6 +1,11 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { validateEnv } from './config/env.schema.js';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+import { LoggerModule } from 'nestjs-pino';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
+import { TransformInterceptor } from './common/interceptors/transform.interceptor.js';
+import { buildLoggerParams } from './common/logging/logger.options.js';
+import { validateEnv, type Env } from './config/env.schema.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 
 @Module({
@@ -10,7 +15,16 @@ import { PrismaModule } from './prisma/prisma.module.js';
       cache: true,
       validate: validateEnv,
     }),
+    LoggerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Env, true>) =>
+        buildLoggerParams(config.get('NODE_ENV', { infer: true })),
+    }),
     PrismaModule,
+  ],
+  providers: [
+    { provide: APP_INTERCEPTOR, useClass: TransformInterceptor },
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],
 })
 export class AppModule {}
