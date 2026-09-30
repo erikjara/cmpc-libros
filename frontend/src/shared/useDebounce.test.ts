@@ -22,7 +22,7 @@ describe('useDebounce', () => {
     expect(result.current).toBe('ab')
   })
 
-  it('reinicia la espera si el valor cambia antes del plazo', () => {
+  it('reinicia la espera si el valor cambia antes de que termine', () => {
     const { result, rerender } = renderHook(({ value }) => useDebounce(value, 400), {
       initialProps: { value: 'a' },
     })
