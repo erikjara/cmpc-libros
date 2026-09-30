@@ -1,0 +1,6 @@
+# Cliente generado por Prisma (se regenera con `prisma generate`)
+src/generated/
+
+# Caché de Vitest y build incremental de TypeScript
+.vitest/
+*.tsbuildinfo
