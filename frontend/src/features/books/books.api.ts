@@ -1,5 +1,12 @@
 import { httpClient } from '@/lib/http-client'
-import type { ApiResponse, Book, BookFilters, BookListQuery, PaginatedResponse } from '@/lib/api-types'
+import type {
+  ApiResponse,
+  Book,
+  BookFilters,
+  BookInput,
+  BookListQuery,
+  PaginatedResponse,
+} from '@/lib/api-types'
 
 export function toQueryString(params: BookListQuery | BookFilters): string {
   const search = new URLSearchParams()
@@ -19,8 +26,25 @@ export async function fetchBook(id: string): Promise<Book> {
   return response.data.data
 }
 
+export async function createBook(input: BookInput): Promise<Book> {
+  const response = await httpClient.post<ApiResponse<Book>>('/books', input)
+  return response.data.data
+}
+
+export async function updateBook(id: string, input: Partial<BookInput>): Promise<Book> {
+  const response = await httpClient.patch<ApiResponse<Book>>(`/books/${id}`, input)
+  return response.data.data
+}
+
 export async function deleteBook(id: string): Promise<void> {
   await httpClient.delete(`/books/${id}`)
+}
+
+export async function uploadBookImage(id: string, file: File): Promise<Book> {
+  const form = new FormData()
+  form.append('image', file)
+  const response = await httpClient.post<ApiResponse<Book>>(`/books/${id}/image`, form)
+  return response.data.data
 }
 
 export function buildExportUrl(filters: BookFilters): string {
