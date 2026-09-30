@@ -1,0 +1,21 @@
+# Dependencias y builds
+node_modules/
+dist/
+build/
+coverage/
+
+# Entorno
+.env
+.env.*
+!.env.example
+
+# Archivos subidos en desarrollo
+uploads/
+
+# Sistema / editores
+.DS_Store
+.idea/
+.vscode/
+
+# Documentos locales no versionados
+*.pdf

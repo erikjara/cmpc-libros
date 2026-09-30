@@ -1,0 +1,277 @@
+# CMPC-libros — Documento de diseño
+
+> Fecha: 2026-09-30 · Estado: aprobado
+
+## 1. Objetivo y principios
+
+Aplicación web para que la tienda CMPC-libros digitalice su inventario: gestión de libros (título,
+autor, editorial, precio, disponibilidad y género) con listado avanzado, alta/edición con imagen,
+detalle, exportación CSV y auditoría de operaciones.
+
+Principios que guían el diseño:
+
+- **Decisiones explícitas:** todo supuesto sobre el dominio queda explicado y fundamentado en el
+  README (sección "Supuestos y decisiones").
+- **Roadmap transparente:** lo que no forma parte de esta versión queda descrito con su diseño
+  propuesto (sección "Roadmap").
+- **Despliegue simple:** el stack completo se levanta con un único `docker compose up --build`.
+- **Calidad verificable:** cobertura de tests ≥ 80 % en backend y frontend, **forzada** por
+  configuración y validada en CI.
+
+## 2. Estructura del repositorio (monorepo simple)
+
+```
+/
+├── backend/            NestJS + Prisma (package.json, Dockerfile, tests propios)
+├── frontend/           Vite + React (package.json, Dockerfile + nginx, tests propios)
+├── docs/               design.md, architecture.md, database.md, schema.dbml
+├── .github/workflows/  CI: lint + tests + cobertura de ambas apps
+├── docker-compose.yml
+├── .env.example
+└── README.md
+```
+
+**Decisión:** apps independientes, sin workspaces ni Nx. Minimiza configuración y facilita el
+onboarding de nuevos desarrolladores. **Trade-off:** los tipos de la API se duplican entre front y back; mejora
+documentada: generar el cliente desde OpenAPI (`openapi-typescript`).
+
+## 3. Modelo de datos (PostgreSQL + Prisma)
+
+### Tablas
+
+| Tabla | Columnas |
+|---|---|
+| `users` | `id uuid PK`, `email UNIQUE`, `password_hash`, `name`, `created_at`, `updated_at` |
+| `authors` | `id uuid PK`, `name UNIQUE`, `created_at` |
+| `publishers` | `id uuid PK`, `name UNIQUE`, `created_at` |
+| `genres` | `id uuid PK`, `name UNIQUE`, `created_at` |
+| `books` | `id uuid PK`, `title`, `author_id FK`, `publisher_id FK`, `genre_id FK`, `price Decimal(10,2)`, `stock Int (CHECK ≥ 0)`, `image_key String?`, `created_at`, `updated_at`, `deleted_at timestamp?` |
+| `audit_logs` | `id uuid PK`, `user_id FK → users (nullable)`, `action enum`, `entity`, `entity_id`, `changes jsonb ({before, after})`, `ip`, `user_agent`, `created_at` |
+
+`action` ∈ `CREATE | UPDATE | DELETE | RESTORE | EXPORT | LOGIN`.
+
+### Supuestos
+
+- **Disponibilidad = stock.** Se modela `stock` (entero ≥ 0) y se deriva `available = stock > 0`.
+  Una tienda que digitaliza inventario necesita cantidades; un booleano pierde información.
+  El filtro "disponible / agotado" se traduce a `stock > 0` / `stock = 0`.
+- **Un autor por libro (1:N).** Simplificación consciente; evolución a N:M documentada
+  (tabla puente `book_authors` con `position`).
+- **Precio en `Decimal`**, nunca `Float`, para evitar errores de redondeo. Moneda asumida: CLP.
+- **Autor, editorial y género normalizados** en tablas propias: filtros exactos por ID y sin
+  duplicados por tipeo. Los nombres se normalizan con `trim` y se crean vía `connectOrCreate`.
+
+### Índices
+
+- FKs `books.author_id`, `books.publisher_id`, `books.genre_id` (filtros frecuentes).
+- `books.deleted_at` (todas las consultas filtran `deleted_at IS NULL`).
+- `books.price`, `books.created_at` (ordenamiento).
+- **GIN `pg_trgm`** sobre `books.title` y `authors.name`: la búsqueda en tiempo real usa
+  `ILIKE '%texto%'`, que no puede usar B-tree. Se crea con SQL crudo dentro de la migración Prisma
+  (`CREATE EXTENSION IF NOT EXISTS pg_trgm` + `CREATE INDEX … USING gin (… gin_trgm_ops)`).
+- `audit_logs (entity, entity_id)`, `audit_logs (user_id)`, `audit_logs (created_at)`.
+
+### Transacciones
+
+Crear, editar, eliminar (soft) y restaurar un libro se ejecutan en `prisma.$transaction`, que incluye
+el `connectOrCreate` de autor/editorial/género, el cambio del libro y el registro en `audit_logs`.
+No puede existir un cambio sin su auditoría ni viceversa.
+
+### Soft delete
+
+`deleted_at` (timestamp) en lugar de booleano: registra cuándo se eliminó y permite purgas por
+antigüedad. Los repositorios filtran `deletedAt: null` explícitamente (sin "magia" de middleware),
+lo que hace el comportamiento visible y testeable.
+
+## 4. Backend (NestJS)
+
+### Módulos
+
+| Módulo | Responsabilidad |
+|---|---|
+| `config` | Carga y valida variables de entorno al arrancar (falla rápido) |
+| `prisma` | `PrismaService` global, conexión y shutdown hooks |
+| `auth` | Login, `JwtStrategy`, `JwtAuthGuard` **global** + decorador `@Public()`, throttling en login |
+| `users` | `UsersRepository` (búsqueda por email). Usuarios creados por seed |
+| `books` | `BooksController` → `BooksService` → `BooksRepository`; `BooksExportService`; DTOs |
+| `catalog` | Listados de `authors`, `publishers`, `genres` con `?search=` |
+| `audit` | `AuditService.record(tx, entry)` y `GET /audit-logs` paginado |
+| `storage` | Interfaz `StorageService` (token de inyección) + `LocalDiskStorageService` |
+| `health` | `GET /health` para el healthcheck de Docker |
+| `common` | Interceptores, filtro de excepciones, decoradores, utilidades de paginación |
+
+### Capas y SOLID
+
+- **SRP:** controller (entrada/validación/usuario actual) · service (reglas y transacción) ·
+  repository (queries Prisma).
+- **DIP / OCP:** `StorageService` es una interfaz inyectada por token; cambiar a S3 es agregar
+  una implementación sin tocar `BooksService`.
+- Los repositorios reciben el cliente transaccional `tx`, lo que permite componer libro + auditoría
+  en una transacción sin acoplar `BooksRepository` a `AuditService`.
+- El usuario actual y la IP se pasan **explícitamente** del controller al service (sin contexto
+  implícito), para facilitar los tests.
+- Lógica pura extraída: `parseSort(string)` y `buildBookQuery(filters) → { where, orderBy }`.
+
+### Endpoints (prefijo `/api`, Swagger en `/api/docs`)
+
+| Método | Ruta | Notas |
+|---|---|---|
+| POST | `/auth/login` | Público, rate limit. Responde `{ accessToken, user }` |
+| GET | `/auth/me` | Usuario autenticado |
+| GET | `/books` | `page`, `limit` (máx. 100), `search`, `genreId`, `publisherId`, `authorId`, `available`, `sort` |
+| GET | `/books/export` | Mismos filtros; CSV en streaming. Declarada antes de `/books/:id` |
+| GET | `/books/:id` | Detalle |
+| POST | `/books` | JSON; autor/editorial/género por `id` o por `name` (connectOrCreate) |
+| PATCH | `/books/:id` | Edición parcial |
+| DELETE | `/books/:id` | Soft delete, 204 |
+| POST | `/books/:id/restore` | Revierte el soft delete |
+| POST | `/books/:id/image` | Multipart; jpeg/png/webp, ≤ 2 MB, nombre UUID |
+| GET | `/authors`, `/publishers`, `/genres` | `?search=` para autocomplete |
+| GET | `/audit-logs` | Paginado, filtrable por entidad |
+| GET | `/health` | Público |
+
+**Ordenamiento:** `sort=price:desc,title:asc`; lista blanca de campos (`title`, `price`, `stock`,
+`createdAt`, `author`, `publisher`, `genre`). Campo no permitido → 400.
+
+**Búsqueda:** `search` hace `ILIKE` sobre título y nombre de autor (apoyado en índices trigram).
+
+**Exportación CSV:** lectura por lotes con cursor, escrita a un stream (sin cargar todo en memoria),
+BOM UTF-8 para Excel, registra `EXPORT` en auditoría.
+
+### Transversales
+
+- `TransformInterceptor`: respuestas `{ data, meta }`; no envuelve `StreamableFile`.
+- `LoggingInterceptor` + `nestjs-pino`: logs JSON con `requestId`, método, ruta, status y duración.
+- `AllExceptionsFilter`: error uniforme `{ statusCode, error, message, path, timestamp, requestId }`;
+  mapea Prisma `P2025` → 404 y `P2002` → 409.
+- `ValidationPipe` global (`whitelist`, `forbidNonWhitelisted`, `transform`), `helmet`, CORS
+  restringido al origen del frontend.
+- Contraseñas con bcrypt; `JWT_SECRET` y expiración desde variables de entorno.
+
+### Supuestos
+
+- Sin registro público: herramienta interna; usuarios creados por seed (`admin@cmpc.cl`).
+- La imagen se sube en un endpoint separado del JSON del libro: CRUD limpio y contrato Swagger
+  simple. Trade-off: 2 requests; si falla la imagen, el libro queda guardado y la UI lo informa.
+- Imágenes en disco local (volumen Docker) servidas como estáticos bajo `/api/uploads`.
+
+## 5. Frontend (Vite + React + TypeScript)
+
+### Stack
+
+shadcn/ui (Radix + Tailwind v4), **TanStack Table** (headless), TanStack Query, React Router,
+react-hook-form + zod, axios, Sonner (toasts).
+
+**Decisión documentada:** se descartó MUI X DataGrid porque el ordenamiento multi-columna es una
+funcionalidad Pro. TanStack Table soporta `manualSorting`, `manualPagination` y `enableMultiSort`
+de forma nativa y gratuita.
+
+### Estructura por features
+
+```
+src/
+├── app/          providers (QueryClient, Auth, Toaster), router, layout
+├── components/ui componentes shadcn (generados por CLI; excluidos de cobertura)
+├── lib/          httpClient (axios + interceptores), ApiError, formatters es-CL
+├── features/
+│   ├── auth/     AuthProvider/useAuth, LoginPage, ProtectedRoute
+│   ├── books/    books.api.ts, hooks, BooksListPage, BooksTable, BooksFilters,
+│   │             BookFormPage, BookForm (+ schema zod), ImagePicker, BookDetailPage
+│   └── catalog/  hooks de autores/editoriales/géneros, CatalogCombobox
+└── shared/       useDebounce, ConfirmDialog, ErrorBoundary, EmptyState, NotFoundPage
+```
+
+Rutas: `/login`, `/books`, `/books/new`, `/books/:id`, `/books/:id/edit` (todas salvo login bajo
+`ProtectedRoute`).
+
+### Listado
+
+- Estado (página, filtros, búsqueda, orden) **en la URL** vía `useSearchParams`: compartible,
+  sobrevive a recargas y es el `queryKey` de TanStack Query.
+- Búsqueda con debounce de 400 ms; cambiar búsqueda o filtros vuelve a página 1.
+- Filtros: género (select), editorial y autor (combobox con búsqueda en servidor), disponibilidad
+  (todos / disponible / agotado), botón "Limpiar filtros".
+- Orden múltiple: clic en encabezado cicla asc → desc → sin orden y se agrega al orden existente;
+  badge de prioridad por columna.
+- Paginación del servidor; `placeholderData: keepPreviousData` para evitar parpadeo.
+- Skeleton de carga, estado vacío, botón "Exportar CSV" (descarga blob con token y filtros activos).
+
+### Formulario (alta y edición)
+
+- react-hook-form + zod en `mode: 'onChange'` (validación reactiva, errores por campo, submit
+  deshabilitado si inválido o enviando).
+- Autor/editorial/género con combobox "elegir o crear" (`Command` + `Popover`).
+- `ImagePicker` con preview y validación cliente (tipo, ≤ 2 MB), igual regla que el backend.
+- Guardar: mutación → subida de imagen si corresponde → invalidación de queries → toast → detalle.
+
+### Detalle
+
+Imagen o placeholder, todos los datos, chip "Disponible (n)" / "Agotado", precio en CLP,
+acciones Editar y Eliminar (con confirmación).
+
+### Autenticación y errores
+
+- Token en `localStorage`, validado con `/auth/me` al iniciar. **Trade-off documentado** (XSS);
+  alternativa productiva: cookie httpOnly + refresh token.
+- Interceptor axios: agrega `Bearer`; ante 401 cierra sesión y redirige a `/login` recordando
+  la ruta de origen; normaliza errores a `ApiError { status, message }`.
+- Errores de mutaciones → toast; errores de queries → inline con "Reintentar";
+  `ErrorBoundary` global para errores de render.
+
+## 6. Testing
+
+Umbral de 80 % (líneas, ramas, funciones, sentencias) configurado en Jest y Vitest; el comando
+de cobertura falla si no se alcanza.
+
+**Backend (Jest):** services con repositorios mockeados (incluye verificar que la auditoría usa el
+mismo `tx`), controllers con services mockeados, `parseSort` y `buildBookQuery`,
+`TransformInterceptor`, `AllExceptionsFilter`, `JwtAuthGuard`/`@Public()`, `BooksExportService`
+(escapado CSV, BOM) y `LocalDiskStorageService` (directorio temporal).
+Excluidos de cobertura: `main.ts`, `*.module.ts`, DTOs, cliente generado de Prisma.
+Tests e2e: ver Roadmap (sección 9).
+
+**Frontend (Vitest + Testing Library + MSW):** `useDebounce` (fake timers), `useBookSearchParams`,
+hooks de queries/mutaciones, `httpClient` (token, 401, `ApiError`), `LoginPage`, `BooksTable`
+(clic en encabezados → `sort` en URL), `BooksFilters`, `BookForm` (validación), `ImagePicker`,
+`BookDetailPage`, `ProtectedRoute`. Setup con polyfills de Radix para jsdom
+(`hasPointerCapture`, `scrollIntoView`, `ResizeObserver`).
+Excluidos: `src/components/ui/**`, `main.tsx`.
+
+## 7. DevOps
+
+- `docker-compose.yml`:
+  - `db`: `postgres:17-alpine`, healthcheck, volumen persistente.
+  - `backend`: Dockerfile multi-stage, usuario no root; al iniciar `prisma migrate deploy` →
+    seed idempotente (admin + ~60 libros) → `node dist/main`. Volumen `uploads`.
+    `depends_on` con `condition: service_healthy`.
+  - `frontend`: build de Vite servido por nginx, que también hace reverse proxy de `/api` al
+    backend (mismo origen, sin CORS en el despliegue).
+  - App en `http://localhost:8080`; Swagger en `http://localhost:8080/api/docs`.
+- `.env.example` en raíz y por app; sin secretos en el código.
+- GitHub Actions: lint + tests + cobertura de backend y frontend en cada push.
+- Commits pequeños y descriptivos (Conventional Commits) para un historial trazable.
+
+## 8. Documentación
+
+- `README.md`: requisitos, instalación (Docker y local), variables de entorno, credenciales demo,
+  guía de uso, arquitectura, **Supuestos y decisiones**, **Roadmap**, tests y cobertura.
+- `docs/architecture.md`: diagrama de arquitectura (Mermaid) y ciclo de una request
+  (guard → pipe → controller → service → transacción → interceptor).
+- `docs/database.md` + `docs/schema.dbml`: modelo relacional en Mermaid `erDiagram` y DBML para
+  dbdiagram.io.
+- Swagger: DTOs con `@ApiProperty` y ejemplos, `@ApiBearerAuth`, respuestas de error documentadas.
+
+## 9. Roadmap
+
+Evoluciones previstas para próximas versiones, con su diseño propuesto:
+
+| Evolución | Diseño propuesto |
+|---|---|
+| Refresh tokens | Cookie httpOnly `SameSite=Strict` con refresh token rotativo almacenado hasheado en BD; access token corto en memoria |
+| Roles (RBAC) | Columna `role` en `users`, decorador `@Roles()` + `RolesGuard` |
+| Almacenamiento S3/MinIO | Nueva clase `S3StorageService implements StorageService`, seleccionada por variable de entorno |
+| Export masivo asíncrono | Cola BullMQ + Redis, job que genera el archivo y notifica/descarga por URL firmada |
+| Varios autores por libro | Tabla puente `book_authors (book_id, author_id, position)` |
+| Papelera en la UI | Vista de libros eliminados usando `POST /books/:id/restore` (endpoint ya existe) |
+| Cliente tipado | `openapi-typescript` generado desde el Swagger del backend |
+| Tests e2e | Testcontainers (backend) y Playwright (frontend) |
