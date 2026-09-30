@@ -8,6 +8,7 @@ import {
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { CatalogController } from './catalog.controller.js';
 import { CatalogRepository } from './catalog.repository.js';
+import { CatalogService } from './catalog.service.js';
 
 describe('CatalogRepository', () => {
   let prisma: DeepMockProxy<PrismaService>;
@@ -49,25 +50,51 @@ describe('CatalogRepository', () => {
   });
 });
 
-describe('CatalogController', () => {
+describe('CatalogService', () => {
   let repository: MockProxy<CatalogRepository>;
-  let controller: CatalogController;
+  let service: CatalogService;
 
   beforeEach(() => {
     repository = mock<CatalogRepository>();
-    repository.search.mockResolvedValue([]);
-    controller = new CatalogController(repository);
+    service = new CatalogService(repository);
   });
 
-  it('cada ruta consulta su catálogo', async () => {
+  it('consulta cada catálogo en el repositorio con la búsqueda y el límite', async () => {
+    const items = [{ id: 'a1', name: 'Isabel Allende' }];
+    repository.search.mockResolvedValue(items);
+    const query = { search: 'all', limit: 5 };
+
+    await expect(service.authors(query)).resolves.toBe(items);
+    await service.publishers(query);
+    await service.genres(query);
+
+    expect(repository.search.mock.calls).toEqual([
+      ['author', query],
+      ['publisher', query],
+      ['genre', query],
+    ]);
+  });
+});
+
+describe('CatalogController', () => {
+  let service: MockProxy<CatalogService>;
+  let controller: CatalogController;
+
+  beforeEach(() => {
+    service = mock<CatalogService>();
+    service.authors.mockResolvedValue([]);
+    service.publishers.mockResolvedValue([]);
+    service.genres.mockResolvedValue([]);
+    controller = new CatalogController(service);
+  });
+
+  it('cada ruta delega en el service', async () => {
     const query = { search: 'a', limit: 20 };
     await controller.authors(query);
     await controller.publishers(query);
     await controller.genres(query);
-    expect(repository.search.mock.calls.map(([kind]) => kind)).toEqual([
-      'author',
-      'publisher',
-      'genre',
-    ]);
+    expect(service.authors).toHaveBeenCalledWith(query);
+    expect(service.publishers).toHaveBeenCalledWith(query);
+    expect(service.genres).toHaveBeenCalledWith(query);
   });
 });
