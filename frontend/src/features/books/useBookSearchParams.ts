@@ -115,7 +115,8 @@ export function useBookSearchParams() {
             else next.delete(key)
           }
         },
-        { resetPage: true },
+        // Búsqueda y filtros reemplazan la entrada: escribir no debe llenar el historial.
+        { resetPage: true, replace: true },
       ),
     [update],
   )
@@ -134,7 +135,7 @@ export function useBookSearchParams() {
   )
 
   const clearFilters = useCallback(
-    () => update((next) => FILTER_KEYS.forEach((key) => next.delete(key)), { resetPage: true }),
+    () => update((next) => FILTER_KEYS.forEach((key) => next.delete(key)), { resetPage: true, replace: true }),
     [update],
   )
 

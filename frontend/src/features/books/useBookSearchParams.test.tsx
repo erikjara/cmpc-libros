@@ -1,18 +1,24 @@
 import { act, renderHook } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router'
+import { MemoryRouter, useLocation, useNavigationType } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import { parseBookSearchParams, useBookSearchParams } from './useBookSearchParams'
 
 function setup(initialEntry = '/books') {
-  const { result } = renderHook(() => ({ params: useBookSearchParams(), location: useLocation() }), {
-    wrapper: ({ children }) => <MemoryRouter initialEntries={[initialEntry]}>{children}</MemoryRouter>,
-  })
+  const { result } = renderHook(
+    () => ({ params: useBookSearchParams(), location: useLocation(), navigationType: useNavigationType() }),
+    {
+      wrapper: ({ children }) => <MemoryRouter initialEntries={[initialEntry]}>{children}</MemoryRouter>,
+    },
+  )
   return {
     get result() {
       return result.current.params
     },
     get search() {
       return result.current.location.search
+    },
+    get navigationType() {
+      return result.current.navigationType
     },
   }
 }
@@ -106,5 +112,19 @@ describe('useBookSearchParams', () => {
     act(() => hook.result.clearFilters())
     expect(hook.search).toBe('?sort=title%3Aasc&limit=20')
     expect(hook.result.hasActiveFilters).toBe(false)
+  })
+
+  it('la búsqueda y los filtros reemplazan la entrada del historial', () => {
+    const hook = setup('/books')
+    act(() => hook.result.setFilters({ search: 'cien' }))
+    expect(hook.navigationType).toBe('REPLACE')
+    act(() => hook.result.setPage(2))
+    expect(hook.navigationType).toBe('PUSH')
+    act(() => hook.result.setFilters({ available: 'true' }))
+    expect(hook.navigationType).toBe('REPLACE')
+    act(() => hook.result.setSorting([{ id: 'title', desc: false }]))
+    expect(hook.navigationType).toBe('PUSH')
+    act(() => hook.result.clearFilters())
+    expect(hook.navigationType).toBe('REPLACE')
   })
 })
