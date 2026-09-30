@@ -67,6 +67,43 @@ describe('rutas de la aplicación', () => {
   })
 })
 
+describe('sesión expirada', () => {
+  it('ante un 401 limpia toda la caché de datos, no solo la sesión', async () => {
+    const { queryClient, router } = renderApp('/books')
+    await screen.findByRole('heading', { name: 'Libros' })
+    queryClient.setQueryData(['books', 'detail', 'x'], { id: 'x' })
+    db.sessionUser = null
+    await httpClient.get('/books').catch(() => undefined)
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'))
+    expect(queryClient.getQueryData(['books', 'detail', 'x'])).toBeUndefined()
+    expect(queryClient.getQueriesData({ queryKey: ['books'] }).every(([, data]) => data === undefined)).toBe(true)
+  })
+
+  it('varios 401 simultáneos provocan una sola navegación a /login', async () => {
+    const { router, user } = renderApp('/books')
+    await screen.findByRole('heading', { name: 'Libros' })
+    const navigate = vi.spyOn(router, 'navigate')
+    db.sessionUser = null
+    await Promise.all([
+      httpClient.get('/books').catch(() => undefined),
+      httpClient.get('/authors').catch(() => undefined),
+    ])
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'))
+    expect(navigate).toHaveBeenCalledTimes(1)
+
+    // Al llegar a /login se libera la bandera: una nueva expiración vuelve a redirigir.
+    await user.type(screen.getByLabelText('Correo'), 'admin@cmpc.cl')
+    await user.type(screen.getByLabelText('Contraseña'), 'Admin123!')
+    await user.click(screen.getByRole('button', { name: 'Ingresar' }))
+    await screen.findByRole('heading', { name: 'Libros' })
+    navigate.mockClear()
+    db.sessionUser = null
+    await httpClient.get('/books').catch(() => undefined)
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'))
+    expect(navigate).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('errores de ruta', () => {
   it('fuera del layout se muestran a pantalla completa con su propio <main>', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
