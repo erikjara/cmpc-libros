@@ -63,9 +63,13 @@ describe('BooksListPage', () => {
     expect(await screen.findAllByRole('row')).toHaveLength(11)
   })
 
-  it('muestra una página fuera de rango como vacía sin error', async () => {
-    renderList('/books?page=99')
-    expect(await screen.findByText('No se encontraron libros')).toBeInTheDocument()
+  it('redirige una página fuera de rango a la última página sin agregar entrada al historial', async () => {
+    const { router, params } = renderList('/books?page=99&available=true')
+    expect(await screen.findByText(/Página 2 de 2/)).toBeInTheDocument()
+    expect(params().get('page')).toBe('2')
+    expect(params().get('available')).toBe('true')
+    expect(router.state.historyAction).toBe('REPLACE')
+    expect(screen.queryByText('No se encontraron libros')).not.toBeInTheDocument()
   })
 
   it('construye el enlace de exportación con los filtros activos', async () => {

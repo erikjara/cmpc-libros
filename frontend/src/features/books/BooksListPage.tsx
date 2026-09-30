@@ -1,4 +1,5 @@
 import { DownloadIcon, PlusIcon } from 'lucide-react'
+import { useEffect } from 'react'
 import { Link } from 'react-router'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -26,6 +27,14 @@ export function BooksListPage() {
     useBookSearchParams()
   const booksQuery = useBooksQuery(query)
   const result = booksQuery.data
+  // Página fuera de rango (p. ej. tras eliminar el último libro de la última página): el servidor
+  // responde data vacía con el total real, así que se reemplaza la URL por la última página.
+  const lastPage = result && result.data.length === 0 && result.meta.total > 0 ? result.meta.totalPages : null
+  const redirectPage = booksQuery.isPlaceholderData ? null : lastPage
+
+  useEffect(() => {
+    if (redirectPage !== null) setPage(redirectPage, { replace: true })
+  }, [redirectPage, setPage])
 
   return (
     <section className="flex flex-col gap-6">
@@ -45,13 +54,13 @@ export function BooksListPage() {
 
       <BooksFilters values={state} onChange={setFilters} onClear={clearFilters} hasActiveFilters={hasActiveFilters} />
 
-      {booksQuery.isPending && <BooksTableSkeleton />}
+      {(booksQuery.isPending || lastPage !== null) && <BooksTableSkeleton />}
 
       {booksQuery.isError && !result && (
         <QueryError error={booksQuery.error} onRetry={() => void booksQuery.refetch()} title="No se pudieron cargar los libros" />
       )}
 
-      {result && result.data.length === 0 && (
+      {result && result.meta.total === 0 && (
         <EmptyState
           title="No se encontraron libros"
           description={hasActiveFilters ? 'Prueba con otros filtros o términos de búsqueda.' : 'Aún no hay libros registrados.'}

@@ -72,21 +72,25 @@ export function useBookSearchParams() {
   const filters = useMemo(() => toBookFilters(state), [state])
 
   const update = useCallback(
-    (mutate: (next: URLSearchParams) => void, options: { resetPage: boolean }) => {
-      setSearchParams((previous) => {
-        const next = new URLSearchParams(previous)
-        mutate(next)
-        if (options.resetPage) next.delete('page')
-        return next
-      })
+    (mutate: (next: URLSearchParams) => void, options: { resetPage: boolean; replace?: boolean }) => {
+      setSearchParams(
+        (previous) => {
+          const next = new URLSearchParams(previous)
+          mutate(next)
+          if (options.resetPage) next.delete('page')
+          return next
+        },
+        { replace: options.replace ?? false },
+      )
     },
     [setSearchParams],
   )
 
   const setPage = useCallback(
-    (page: number) =>
+    (page: number, options: { replace?: boolean } = {}) =>
       update((next) => (page > 1 ? next.set('page', String(page)) : next.delete('page')), {
         resetPage: false,
+        replace: options.replace,
       }),
     [update],
   )
