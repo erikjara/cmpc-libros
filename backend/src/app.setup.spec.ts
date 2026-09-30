@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Controller, Get, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
@@ -25,14 +28,22 @@ describe('buildHelmetOptions', () => {
 
 describe('configureApp', () => {
   let app: NestExpressApplication;
+  let uploadsDir: string;
 
   beforeAll(async () => {
+    uploadsDir = await mkdtemp(join(tmpdir(), 'cmpc-setup-'));
+    await writeFile(
+      join(uploadsDir, 'portada.png'),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    );
+
     @Module({
       imports: [
         ConfigModule.forRoot({
           isGlobal: true,
           ignoreEnvFile: true,
           validate: () => ({
+            UPLOADS_DIR: uploadsDir,
             CORS_ORIGIN: 'http://localhost:5173',
             COOKIE_SECURE: false,
           }),
@@ -54,6 +65,7 @@ describe('configureApp', () => {
 
   afterAll(async () => {
     await app.close();
+    await rm(uploadsDir, { recursive: true, force: true });
   });
 
   it('aplica el prefijo global /api', async () => {
@@ -82,5 +94,12 @@ describe('configureApp', () => {
       'http://localhost:5173',
     );
     expect(response.headers['access-control-allow-credentials']).toBe('true');
+  });
+
+  it('sirve las imágenes subidas bajo /api/uploads', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/uploads/portada.png')
+      .expect(200);
+    expect(response.headers['content-type']).toBe('image/png');
   });
 });

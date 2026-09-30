@@ -1,8 +1,11 @@
+import { mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import helmet, { type HelmetOptions } from 'helmet';
+import { UPLOADS_URL_PREFIX } from './books/book.mapper.js';
 import { validationExceptionFactory } from './common/validation/validation-exception.factory.js';
 import type { Env } from './config/env.schema.js';
 
@@ -24,6 +27,8 @@ export function buildHelmetOptions(https: boolean): HelmetOptions {
 /** Configuración HTTP compartida por main.ts y los tests e2e. */
 export function configureApp(app: NestExpressApplication): void {
   const config = app.get<ConfigService<Env, true>>(ConfigService);
+  const uploadsDir = resolve(config.get('UPLOADS_DIR', { infer: true }));
+  mkdirSync(uploadsDir, { recursive: true });
 
   // Detrás de nginx: req.ip toma la IP real del cliente (auditoría y rate limit).
   app.set('trust proxy', 1);
@@ -36,6 +41,11 @@ export function configureApp(app: NestExpressApplication): void {
     credentials: true,
   });
   app.setGlobalPrefix(API_PREFIX);
+  app.useStaticAssets(uploadsDir, {
+    prefix: UPLOADS_URL_PREFIX,
+    index: false,
+    maxAge: '7d',
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

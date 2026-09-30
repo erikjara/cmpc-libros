@@ -1,4 +1,4 @@
-import { StreamableFile } from '@nestjs/common';
+import { BadRequestException, StreamableFile } from '@nestjs/common';
 import { Readable } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
@@ -9,6 +9,7 @@ import {
   makeBook,
   REQUEST_CONTEXT,
 } from '../testing/book-fixtures.js';
+import { JPEG_BYTES } from '../testing/image-fixtures.js';
 import { toBookDto } from './book.mapper.js';
 import type { BooksExportService } from './books-export.service.js';
 import { BooksController } from './books.controller.js';
@@ -81,5 +82,23 @@ describe('BooksController', () => {
       disposition: 'attachment; filename="libros-2026-09-30.csv"',
     });
     vi.useRealTimers();
+  });
+
+  it('uploadImage exige el archivo', () => {
+    expect(() =>
+      controller.uploadImage(BOOK_ID, undefined, REQUEST_CONTEXT),
+    ).toThrow(BadRequestException);
+  });
+
+  it('uploadImage delega el archivo al service', async () => {
+    const file = {
+      buffer: JPEG_BYTES,
+      mimetype: 'image/jpeg',
+      size: 6,
+      originalname: 'a.jpg',
+    };
+    books.setImage.mockResolvedValue(dto);
+    await controller.uploadImage(BOOK_ID, file, REQUEST_CONTEXT);
+    expect(books.setImage).toHaveBeenCalledWith(BOOK_ID, file, REQUEST_CONTEXT);
   });
 });

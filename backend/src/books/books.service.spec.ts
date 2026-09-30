@@ -1,5 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   mock,
   mockDeep,
@@ -10,12 +10,14 @@ import type { AuditService } from '../audit/audit.service.js';
 import { PaginatedResult } from '../common/pagination/pagination.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
+import type { StorageService } from '../storage/storage.service.js';
 import {
   BOOK_ID,
   BOOK_INPUT,
   makeBook,
   REQUEST_CONTEXT,
 } from '../testing/book-fixtures.js';
+import { JPEG_BYTES } from '../testing/image-fixtures.js';
 import { toBookDto } from './book.mapper.js';
 import type { BooksRepository } from './books.repository.js';
 import { BooksService } from './books.service.js';
@@ -26,6 +28,7 @@ describe('BooksService', () => {
   let tx: DeepMockProxy<Prisma.TransactionClient>;
   let repository: MockProxy<BooksRepository>;
   let audit: MockProxy<AuditService>;
+  let storage: MockProxy<StorageService>;
   let service: BooksService;
 
   beforeEach(() => {
@@ -37,7 +40,8 @@ describe('BooksService', () => {
     ) => fn(tx)) as never);
     repository = mock<BooksRepository>();
     audit = mock<AuditService>();
-    service = new BooksService(prisma, repository, audit);
+    storage = mock<StorageService>();
+    service = new BooksService(prisma, repository, audit, storage);
   });
 
   describe('list', () => {
@@ -226,6 +230,107 @@ describe('BooksService', () => {
       await expect(service.restore(BOOK_ID, REQUEST_CONTEXT)).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('setImage', () => {
+    const file = {
+      buffer: JPEG_BYTES,
+      mimetype: 'image/jpeg',
+      size: JPEG_BYTES.length,
+      originalname: 'a.jpg',
+    };
+
+    it('guarda la imagen, actualiza imageKey y audita con el mismo tx', async () => {
+      repository.findActiveById.mockResolvedValue(makeBook({ imageKey: null }));
+      storage.save.mockResolvedValue('new.jpg');
+      repository.setImageKey.mockResolvedValue(
+        makeBook({ imageKey: 'new.jpg' }),
+      );
+
+      const result = await service.setImage(BOOK_ID, file, REQUEST_CONTEXT);
+
+      expect(storage.save).toHaveBeenCalledWith(JPEG_BYTES, 'jpg');
+      expect(repository.setImageKey).toHaveBeenCalledWith(
+        tx,
+        BOOK_ID,
+        'new.jpg',
+      );
+      expect(audit.record).toHaveBeenCalledWith(tx, {
+        action: 'UPDATE',
+        entity: 'Book',
+        entityId: BOOK_ID,
+        context: REQUEST_CONTEXT,
+        changes: { before: { imageKey: null }, after: { imageKey: 'new.jpg' } },
+      });
+      expect(result.imageUrl).toBe('/api/uploads/new.jpg');
+      expect(storage.delete).not.toHaveBeenCalled();
+    });
+
+    it('elimina la imagen anterior después de reemplazarla', async () => {
+      repository.findActiveById.mockResolvedValue(
+        makeBook({ imageKey: 'old.jpg' }),
+      );
+      storage.save.mockResolvedValue('new.jpg');
+      repository.setImageKey.mockResolvedValue(
+        makeBook({ imageKey: 'new.jpg' }),
+      );
+
+      await service.setImage(BOOK_ID, file, REQUEST_CONTEXT);
+
+      expect(storage.delete).toHaveBeenCalledWith('old.jpg');
+    });
+
+    it('rechaza con 400 un archivo que no es JPEG/PNG/WebP (aunque diga image/jpeg)', async () => {
+      await expect(
+        service.setImage(
+          BOOK_ID,
+          { ...file, buffer: Buffer.from('GIF89a') },
+          REQUEST_CONTEXT,
+        ),
+      ).rejects.toThrow('Formato de imagen no permitido: usa JPEG, PNG o WebP');
+      expect(storage.save).not.toHaveBeenCalled();
+    });
+
+    it('responde 404 sin guardar archivo si el libro no existe', async () => {
+      repository.findActiveById.mockResolvedValue(null);
+      await expect(
+        service.setImage(BOOK_ID, file, REQUEST_CONTEXT),
+      ).rejects.toThrow(NotFoundException);
+      expect(storage.save).not.toHaveBeenCalled();
+    });
+
+    it('borra el archivo nuevo si la transacción falla', async () => {
+      repository.findActiveById.mockResolvedValue(makeBook());
+      storage.save.mockResolvedValue('new.jpg');
+      repository.setImageKey.mockRejectedValue(new Error('fallo'));
+
+      await expect(
+        service.setImage(BOOK_ID, file, REQUEST_CONTEXT),
+      ).rejects.toThrow('fallo');
+      expect(storage.delete).toHaveBeenCalledWith('new.jpg');
+    });
+
+    it('no falla si no puede borrar la imagen anterior', async () => {
+      repository.findActiveById.mockResolvedValue(
+        makeBook({ imageKey: 'old.jpg' }),
+      );
+      storage.save.mockResolvedValue('new.jpg');
+      repository.setImageKey.mockResolvedValue(
+        makeBook({ imageKey: 'new.jpg' }),
+      );
+      storage.delete.mockRejectedValue(new Error('EACCES'));
+      const warn = vi
+        .spyOn(
+          (service as unknown as { logger: { warn: () => void } }).logger,
+          'warn',
+        )
+        .mockImplementation(() => undefined);
+
+      await expect(
+        service.setImage(BOOK_ID, file, REQUEST_CONTEXT),
+      ).resolves.toBeDefined();
+      expect(warn).toHaveBeenCalledOnce();
     });
   });
 });

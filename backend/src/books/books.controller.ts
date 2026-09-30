@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,9 +10,14 @@ import {
   Post,
   Query,
   StreamableFile,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiCookieAuth,
   ApiOperation,
   ApiProduces,
@@ -26,6 +32,8 @@ import {
 } from '../common/swagger/api-docs.decorators.js';
 import type { RequestContext } from '../common/types/request-context.js';
 import { UUID_PARAM_PIPE } from '../common/validation/uuid-param.pipe.js';
+import { MAX_IMAGE_BYTES } from '../storage/image-type.js';
+import type { UploadedImage } from '../storage/storage.service.js';
 import type { BookDto } from './book.mapper.js';
 import { BooksExportService } from './books-export.service.js';
 import { BooksService } from './books.service.js';
@@ -134,5 +142,38 @@ export class BooksController {
     @ReqContext() context: RequestContext,
   ): Promise<BookDto> {
     return this.books.restore(id, context);
+  }
+
+  @Post(':id/image')
+  @HttpCode(200)
+  @UseInterceptors(
+    FileInterceptor('image', {
+      limits: { fileSize: MAX_IMAGE_BYTES, files: 1 },
+    }),
+  )
+  @ApiOperation({
+    summary: 'Sube o reemplaza la imagen (JPEG, PNG o WebP, máx. 2 MB)',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['image'],
+      properties: { image: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiDataResponse(BookResponseDto)
+  @ApiErrors(400, 404, 413)
+  uploadImage(
+    @Param('id', UUID_PARAM_PIPE) id: string,
+    @UploadedFile() file: UploadedImage | undefined,
+    @ReqContext() context: RequestContext,
+  ): Promise<BookDto> {
+    if (!file) {
+      throw new BadRequestException(
+        'Debes adjuntar una imagen en el campo "image"',
+      );
+    }
+    return this.books.setImage(id, file, context);
   }
 }
