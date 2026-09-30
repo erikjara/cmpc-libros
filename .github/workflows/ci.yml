@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend · lint, tipos y tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # prisma generate no se conecta a la base de datos; prisma.config.ts solo exige la variable.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public
+      CHECKPOINT_DISABLE: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:cov
+      - name: Publicar reporte de cobertura
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-backend
+          path: backend/coverage
+          if-no-files-found: ignore
+
+  frontend:
+    name: Frontend · lint, tipos y tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:cov
+      - name: Publicar reporte de cobertura
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-frontend
+          path: frontend/coverage
+          if-no-files-found: ignore
+
+  docker:
+    name: Docker · build y arranque del stack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Preparar variables de entorno de demo
+        run: cp .env.example .env
+      - name: Validar docker-compose.yml
+        run: docker compose config --quiet
+      - name: Construir imágenes
+        run: docker compose build
+      - name: Levantar el stack y esperar healthchecks
+        run: docker compose up -d --wait --wait-timeout 180
+      - name: Verificar la API a través de nginx
+        run: curl --fail --silent --show-error http://localhost:8080/api/health
+      - name: Logs del stack
+        if: ${{ failure() }}
+        run: docker compose logs --no-color
+      - name: Detener el stack
+        if: ${{ always() }}
+        run: docker compose down -v
