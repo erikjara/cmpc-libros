@@ -99,4 +99,25 @@ describe('BooksListPage', () => {
     await user.click(screen.getByRole('button', { name: 'Reintentar' }))
     await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(11))
   })
+
+  it('si falla una actualización con datos en pantalla mantiene la tabla y ofrece reintentar', async () => {
+    const { user, queryClient } = renderList()
+    expect(await screen.findAllByRole('row')).toHaveLength(11)
+    let fail = true
+    server.use(
+      http.get('/api/books', () => {
+        if (!fail) return undefined
+        return HttpResponse.json(errorBody(500, 'Internal Server Error', 'Error interno del servidor'), { status: 500 })
+      }),
+    )
+    await queryClient.invalidateQueries({ queryKey: ['books', 'list'] })
+    const banner = await screen.findByRole('alert')
+    expect(banner).toHaveTextContent('No se pudieron actualizar los libros')
+    expect(banner).toHaveTextContent('Error interno del servidor')
+    expect(screen.getAllByRole('row')).toHaveLength(11)
+    fail = false
+    await user.click(within(banner).getByRole('button', { name: 'Reintentar' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+    expect(screen.getAllByRole('row')).toHaveLength(11)
+  })
 })

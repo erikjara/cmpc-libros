@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { Link } from 'react-router'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { getErrorMessage } from '@/lib/api-error'
 import { EmptyState } from '@/shared/EmptyState'
 import { QueryError } from '@/shared/QueryError'
 import { buildExportUrl } from './books.api'
@@ -62,6 +63,21 @@ export function BooksListPage() {
       <BooksFilters values={state} onChange={setFilters} onClear={clearFilters} hasActiveFilters={hasActiveFilters} />
 
       {(booksQuery.isPending || lastPage !== null) && <BooksTableSkeleton />}
+
+      {booksQuery.isError && result && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/40 px-4 py-3 text-sm"
+        >
+          <p>
+            <span className="font-medium">No se pudieron actualizar los libros.</span>{' '}
+            <span className="text-muted-foreground">{getErrorMessage(booksQuery.error)}</span>
+          </p>
+          <Button variant="outline" size="sm" onClick={() => void booksQuery.refetch()}>
+            Reintentar
+          </Button>
+        </div>
+      )}
 
       {booksQuery.isError && !result && (
         <QueryError error={booksQuery.error} onRetry={() => void booksQuery.refetch()} title="No se pudieron cargar los libros" />
