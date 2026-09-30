@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { httpClient } from '@/lib/http-client'
 import { db } from '@/test/msw/db'
 import { errorBody } from '@/test/msw/handlers'
@@ -64,6 +64,21 @@ describe('rutas de la aplicación', () => {
     expect(await screen.findByText(SESSION_EXPIRED_MESSAGE)).toBeInTheDocument()
     await waitFor(() => expect(router.state.location.pathname).toBe('/login'))
     expect(router.state.location.search).toBe('?redirectTo=%2Fbooks%3Fpage%3D3')
+  })
+})
+
+describe('errores de ruta', () => {
+  it('fuera del layout se muestran a pantalla completa con su propio <main>', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    server.use(
+      http.get('/api/auth/me', () =>
+        HttpResponse.json(errorBody(500, 'Internal Server Error', 'Error interno del servidor'), { status: 500 }),
+      ),
+    )
+    renderApp('/books')
+    expect(await screen.findByRole('heading', { name: 'Algo salió mal' })).toBeInTheDocument()
+    expect(screen.getByRole('main')).toHaveTextContent('Error interno del servidor')
+    vi.restoreAllMocks()
   })
 })
 

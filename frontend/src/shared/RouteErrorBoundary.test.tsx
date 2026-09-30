@@ -18,6 +18,23 @@ describe('RouteErrorBoundary', () => {
     expect(await screen.findByRole('heading', { name: 'Algo salió mal' })).toBeInTheDocument()
     expect(screen.getByText('Ocurrió un error inesperado.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Ir al listado' })).toHaveAttribute('href', '/books')
+    // Dentro del layout (por defecto) no agrega un <main> anidado.
+    expect(screen.queryByRole('main')).not.toBeInTheDocument()
+  })
+
+  it('a pantalla completa usa <main> también para la página 404', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    renderRoutes([
+      {
+        path: '/',
+        loader: () => {
+          throw data(null, { status: 404 })
+        },
+        element: <p>nunca</p>,
+        errorElement: <RouteErrorBoundary fullPage />,
+      },
+    ])
+    expect(await screen.findByRole('main')).toHaveTextContent('Página no encontrada')
   })
 
   it('muestra el mensaje de un ApiError lanzado por un loader', async () => {

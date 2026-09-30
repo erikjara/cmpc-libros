@@ -16,14 +16,14 @@ export function createRoutes(queryClient: QueryClient): RouteObject[] {
       path: '/login',
       loader: createRedirectIfAuthenticatedLoader(queryClient),
       element: <LoginPage />,
-      errorElement: <RouteErrorBoundary />,
+      errorElement: <RouteErrorBoundary fullPage />,
       hydrateFallbackElement: <FullPageLoader />,
     },
     {
       path: '/',
       loader: createRequireAuthLoader(queryClient),
       element: <AppLayout />,
-      errorElement: <RouteErrorBoundary />,
+      errorElement: <RouteErrorBoundary fullPage />,
       hydrateFallbackElement: <FullPageLoader />,
       children: [
         {

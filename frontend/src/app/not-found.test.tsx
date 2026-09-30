@@ -9,5 +9,6 @@ describe('rutas desconocidas', () => {
     renderRoutes(createRoutes(queryClient), { initialEntries: ['/no-existe'], queryClient })
     expect(await screen.findByRole('heading', { name: 'Página no encontrada' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Cerrar sesión' })).toBeInTheDocument()
+    expect(screen.getAllByRole('main')).toHaveLength(1)
   })
 })
