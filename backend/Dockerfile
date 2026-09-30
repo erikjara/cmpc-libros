@@ -30,6 +30,8 @@ ENV NODE_ENV=production \
     UPLOADS_DIR=/app/uploads \
     CHECKPOINT_DISABLE=1 \
     PATH=/app/node_modules/.bin:$PATH
+# openssl: requerido por el schema engine de Prisma (migrate deploy) en Alpine
+RUN apk add --no-cache openssl
 WORKDIR /app
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist

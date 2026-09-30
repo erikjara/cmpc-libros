@@ -31,7 +31,9 @@ flowchart LR
   comparten origen, la cookie de sesión viaja sin configuración CORS y `SameSite=Strict` basta
   para mitigar CSRF.
 - **Backend sin estado.** La sesión vive en un JWT firmado dentro de una cookie `httpOnly`; el
-  backend no guarda sesiones en memoria, por lo que puede escalar horizontalmente.
+  backend no guarda sesiones en memoria. Para escalar horizontalmente a varias réplicas faltan
+  dos piezas compartidas: almacenamiento de imágenes (S3/MinIO, ver Roadmap) y un store común
+  para el rate limit de login (p. ej. Redis), que hoy vive en memoria de cada instancia.
 - **Persistencia en volúmenes.** Los datos de PostgreSQL y las imágenes subidas sobreviven a
   `docker compose down` (se eliminan solo con `docker compose down -v`).
 - **Arranque autónomo.** Al iniciar, el contenedor del backend aplica las migraciones pendientes

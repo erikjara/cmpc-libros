@@ -77,7 +77,7 @@ Table books {
 
 Table audit_logs {
   id uuid [pk]
-  user_id uuid [null, ref: > users.id]
+  user_id uuid [null, note: 'ON DELETE SET NULL: la auditoría se conserva si se elimina el usuario']
   action audit_action [not null]
   entity text [not null, note: 'Book | User']
   entity_id text [null]
@@ -92,3 +92,5 @@ Table audit_logs {
     created_at
   }
 }
+
+Ref: audit_logs.user_id > users.id [delete: set null]

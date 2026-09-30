@@ -123,6 +123,17 @@ arrancar: si falta una variable obligatoria o tiene un formato inválido, la API
 `DATABASE_URL` debe coincidir con las credenciales `POSTGRES_*`. En desarrollo local el host es
 `localhost` y `CORS_ORIGIN` es `http://localhost:5173`.
 
+### Checklist para producción
+
+Los valores de `.env.example` son de demostración para levantar el stack localmente. Antes de un
+despliegue real:
+
+- Generar un `JWT_SECRET` propio (p. ej. `openssl rand -base64 48`); el de ejemplo es público.
+- Cambiar `SEED_ADMIN_PASSWORD` (o crear el usuario administrador por otra vía): el seed solo crea
+  el usuario si no existe y nunca sobrescribe su contraseña.
+- Usar credenciales de PostgreSQL propias y no exponer el puerto de la base de datos.
+- Servir detrás de HTTPS y activar `COOKIE_SECURE=true` (habilita además HSTS).
+
 ## Guía de uso
 
 ### Iniciar sesión
