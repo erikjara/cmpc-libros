@@ -162,7 +162,10 @@ BOM UTF-8 para Excel, registra `EXPORT` en auditoría.
 ### Transversales
 
 - `TransformInterceptor`: respuestas `{ data, meta }`; no envuelve `StreamableFile`.
-- `LoggingInterceptor` + `nestjs-pino`: logs JSON con `requestId`, método, ruta, status y duración.
+- Logging HTTP con `nestjs-pino` (pino-http): logs JSON por request con `requestId`, método, ruta,
+  status y duración. Se usa el logger automático de pino-http y no un interceptor, porque un
+  interceptor no registra las respuestas que se resuelven antes de llegar al controller (401 del
+  guard, 404 de rutas inexistentes).
 - `AllExceptionsFilter`: error uniforme `{ statusCode, error, message, path, timestamp, requestId }`;
   mapea Prisma `P2025` → 404 y `P2002` → 409.
 - `ValidationPipe` global (`whitelist`, `forbidNonWhitelisted`, `transform`), `helmet`, CORS
