@@ -61,6 +61,8 @@ export function ImagePicker({ currentImageUrl = null, onFileChange }: ImagePicke
               setError(validationError)
               if (validationError) {
                 event.target.value = ''
+                // El input ya no conserva el archivo anterior: se descarta también la selección.
+                if (previewRef.current) selectFile(null)
                 return
               }
               selectFile(selected)

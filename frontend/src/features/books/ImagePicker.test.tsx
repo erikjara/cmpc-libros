@@ -8,7 +8,6 @@ function makeFile(name: string, type: string, size = 1024): File {
   return new File([new Uint8Array(size)], name, { type })
 }
 
-
 describe('validateImage', () => {
   it('acepta jpeg, png y webp de hasta 2 MB', () => {
     expect(validateImage(makeFile('a.jpg', 'image/jpeg'))).toBeNull()
@@ -55,6 +54,19 @@ describe('ImagePicker', () => {
     await user.upload(screen.getByLabelText('Portada'), makeFile('grande.jpg', 'image/jpeg', MAX_IMAGE_BYTES + 1))
     expect(screen.getByRole('alert')).toHaveTextContent('La imagen supera el máximo de 2 MB.')
     expect(onFileChange).not.toHaveBeenCalled()
+  })
+
+  it('elegir un archivo inválido tras uno válido limpia la selección y la vista previa', async () => {
+    const onFileChange = vi.fn()
+    const user = userEvent.setup()
+    render(<ImagePicker onFileChange={onFileChange} currentImageUrl="/api/uploads/actual.webp" />)
+    const input = screen.getByLabelText('Portada')
+    await user.upload(input, makeFile('portada.png', 'image/png'))
+    fireEvent.change(input, { target: { files: [makeFile('animacion.gif', 'image/gif')] } })
+    expect(screen.getByRole('alert')).toHaveTextContent('Formato no permitido')
+    expect(onFileChange).toHaveBeenLastCalledWith(null)
+    expect(screen.getByRole('img', { name: 'Vista previa de la portada' })).toHaveAttribute('src', '/api/uploads/actual.webp')
+    expect(screen.queryByRole('button', { name: 'Quitar imagen seleccionada' })).not.toBeInTheDocument()
   })
 
   it('permite quitar la imagen seleccionada', async () => {
