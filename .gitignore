@@ -19,3 +19,6 @@ uploads/
 
 # Documentos locales no versionados
 *.pdf
+
+# Planes de trabajo internos
+.plans/
