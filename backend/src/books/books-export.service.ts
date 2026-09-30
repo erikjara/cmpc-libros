@@ -10,7 +10,7 @@ import {
   type BookFilters,
   type BookQuery,
 } from './book-query.js';
-import { BooksRepository } from './books.repository.js';
+import { BooksRepository, type BookWithRelations } from './books.repository.js';
 import { CSV_COLUMNS, toCsvRow, type CsvRow } from './csv.js';
 
 export const EXPORT_BATCH_SIZE = 500;
@@ -26,14 +26,17 @@ export class BooksExportService {
   ) {}
 
   /**
-   * Valida filtros, registra EXPORT y devuelve un stream CSV (BOM UTF-8) que
-   * lee la base de datos por lotes, sin cargar todo el inventario en memoria.
+   * Valida filtros, lee el primer lote, registra EXPORT y devuelve un stream CSV (BOM
+   * UTF-8) que sigue leyendo por lotes, sin cargar todo el inventario en memoria.
+   * El primer lote se lee antes de responder: si la base falla, el error llega al filtro
+   * global como un 500 con el formato de error de la API, en vez de un CSV vacío.
    */
   async createCsvStream(
     filters: BookFilters,
     context: RequestContext,
   ): Promise<Readable> {
     const query = buildBookQuery(filters);
+    const firstBatch = await this.fetchBatch(query);
     await this.audit.record(this.prisma, {
       action: 'EXPORT',
       entity: 'Book',
@@ -47,28 +50,42 @@ export class BooksExportService {
       bom: true,
       columns: [...CSV_COLUMNS],
     });
-    pipeline(Readable.from(this.rows(query)), csv).catch((error: unknown) => {
-      this.logger.error(`Falló la exportación CSV: ${String(error)}`);
-    });
+    // Un error de un lote posterior destruye `csv` con ese mismo error y lo maneja quien
+    // consume el stream (el controller corta la descarga). Si el consumidor lo destruye
+    // (cliente desconectado), la lectura de lotes se detiene.
+    pipeline(Readable.from(this.rows(query, firstBatch)), csv).catch(
+      (error: unknown) => {
+        this.logger.debug(`Exportación CSV interrumpida: ${String(error)}`);
+      },
+    );
     return csv;
   }
 
-  private async *rows({ where, orderBy }: BookQuery): AsyncGenerator<CsvRow> {
-    let cursor: string | undefined;
+  private fetchBatch(
+    { where, orderBy }: BookQuery,
+    cursor?: string,
+  ): Promise<BookWithRelations[]> {
+    return this.repository.findBatch({
+      where,
+      orderBy,
+      take: EXPORT_BATCH_SIZE,
+      cursor,
+    });
+  }
+
+  private async *rows(
+    query: BookQuery,
+    firstBatch: BookWithRelations[],
+  ): AsyncGenerator<CsvRow> {
+    let batch = firstBatch;
     for (;;) {
-      const batch = await this.repository.findBatch({
-        where,
-        orderBy,
-        take: EXPORT_BATCH_SIZE,
-        cursor,
-      });
       for (const book of batch) {
         yield toCsvRow(book);
       }
       if (batch.length < EXPORT_BATCH_SIZE) {
         return;
       }
-      cursor = batch[batch.length - 1].id;
+      batch = await this.fetchBatch(query, batch[batch.length - 1].id);
     }
   }
 }

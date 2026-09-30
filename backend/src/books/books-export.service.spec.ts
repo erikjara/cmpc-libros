@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream';
-import { BadRequestException, Logger } from '@nestjs/common';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { BadRequestException } from '@nestjs/common';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import type { AuditService } from '../audit/audit.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -109,10 +109,40 @@ describe('BooksExportService', () => {
     expect(audit.record).not.toHaveBeenCalled();
   });
 
-  it('si falla la lectura a mitad de camino, el stream termina con error', async () => {
+  it('lee el primer lote antes de devolver el stream: si falla, rechaza sin auditar', async () => {
     repository.findBatch.mockRejectedValueOnce(new Error('db caída'));
-    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+    await expect(service.createCsvStream({}, REQUEST_CONTEXT)).rejects.toThrow(
+      'db caída',
+    );
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('si falla un lote posterior, el stream termina con ese error', async () => {
+    repository.findBatch
+      .mockResolvedValueOnce(
+        Array.from({ length: EXPORT_BATCH_SIZE }, (_, index) =>
+          makeBook({ id: `id-${index}` }),
+        ),
+      )
+      .mockRejectedValueOnce(new Error('db caída'));
+
     const stream = await service.createCsvStream({}, REQUEST_CONTEXT);
+
     await expect(readAll(stream)).rejects.toThrow('db caída');
+  });
+
+  it('si el consumidor destruye el stream, deja de leer lotes', async () => {
+    repository.findBatch.mockResolvedValue(
+      Array.from({ length: EXPORT_BATCH_SIZE }, (_, index) =>
+        makeBook({ id: `id-${index}` }),
+      ),
+    );
+
+    const stream = await service.createCsvStream({}, REQUEST_CONTEXT);
+    stream.destroy();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(repository.findBatch.mock.calls.length).toBeLessThanOrEqual(2);
   });
 });

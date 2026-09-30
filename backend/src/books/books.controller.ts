@@ -5,10 +5,12 @@ import {
   Delete,
   Get,
   HttpCode,
+  Logger,
   Param,
   Patch,
   Post,
   Query,
+  Res,
   StreamableFile,
   UploadedFile,
   UseInterceptors,
@@ -30,6 +32,7 @@ import {
   ApiDataResponse,
   ApiErrors,
 } from '../common/swagger/api-docs.decorators.js';
+import type { Response } from 'express';
 import type { RequestContext } from '../common/types/request-context.js';
 import { UUID_PARAM_PIPE } from '../common/validation/uuid-param.pipe.js';
 import { MAX_IMAGE_BYTES } from '../storage/image-type.js';
@@ -44,12 +47,16 @@ import { BookResponseDto } from './dto/book-response.dto.js';
 import { CreateBookDto } from './dto/create-book.dto.js';
 import { UpdateBookDto } from './dto/update-book.dto.js';
 
+type StreamableResponse = Parameters<StreamableFile['errorHandler']>[1];
+
 @ApiTags('Libros')
 @ApiCookieAuth()
 @ApiBearerAuth()
 @ApiErrors(401)
 @Controller('books')
 export class BooksController {
+  private readonly logger = new Logger(BooksController.name);
+
   constructor(
     private readonly books: BooksService,
     private readonly exporter: BooksExportService,
@@ -76,12 +83,33 @@ export class BooksController {
   async export(
     @Query() filters: BookFiltersDto,
     @ReqContext() context: RequestContext,
+    @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
     const stream = await this.exporter.createCsvStream(filters, context);
+    // Cliente desconectado: se destruye el stream para dejar de leer la base.
+    response.on('close', () => {
+      if (!stream.readableEnded) {
+        stream.destroy();
+      }
+    });
     return new StreamableFile(stream, {
       type: 'text/csv; charset=utf-8',
       disposition: `attachment; filename="${exportFileName(new Date())}"`,
-    });
+    }).setErrorHandler((error, res) => this.abortExport(error, res));
+  }
+
+  /**
+   * Un fallo a mitad del stream no puede cambiar el status (200 ya enviado). El handler
+   * por defecto de Nest cerraría la respuesta con `end()` y el navegador guardaría un CSV
+   * truncado como si estuviera completo; destruir la conexión deja la descarga fallida.
+   */
+  private abortExport(error: Error, res: StreamableResponse): void {
+    this.logger.error(
+      `Falló la exportación CSV: ${error.stack ?? error.message}`,
+    );
+    if (!res.destroyed) {
+      (res as unknown as Response).destroy(error);
+    }
   }
 
   @Get(':id')

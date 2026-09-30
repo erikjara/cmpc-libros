@@ -11,6 +11,9 @@ import {
   vi,
 } from 'vitest';
 import { AuditLogsRepository } from '../src/audit/audit-logs.repository.js';
+import { EXPORT_BATCH_SIZE } from '../src/books/books-export.service.js';
+import { BooksRepository } from '../src/books/books.repository.js';
+import { makeBook } from '../src/testing/book-fixtures.js';
 import { JPEG_BYTES, PNG_BYTES } from '../src/testing/image-fixtures.js';
 import { createE2eApp, login, type E2eApp } from './support/e2e-app.js';
 
@@ -361,6 +364,43 @@ describe('API de libros (e2e)', () => {
       expect(lines).toHaveLength(2);
       expect(lines[1]).toContain('"Exportable, con ""comillas"""');
       expect(lines[1]).toContain(',No,');
+    });
+
+    it('si la base falla al comenzar responde 500 con el formato de error, sin filtrar el detalle', async () => {
+      vi.spyOn(ctx.app.get(BooksRepository), 'findBatch').mockRejectedValueOnce(
+        new Error('detalle interno de la conexión'),
+      );
+
+      const response = await api()
+        .get('/api/books/export')
+        .set('Cookie', cookie)
+        .expect(500);
+
+      expect(response.headers['content-type']).toMatch(/application\/json/);
+      expect(response.body).toMatchObject({
+        statusCode: 500,
+        error: 'Internal Server Error',
+        message: 'Error interno del servidor',
+        path: '/api/books/export',
+        requestId: expect.any(String),
+      });
+      expect(response.text).not.toContain('detalle interno');
+    });
+
+    it('si la base falla a mitad del stream la descarga se corta (no queda un CSV truncado "completo")', async () => {
+      const firstBatch = Array.from({ length: EXPORT_BATCH_SIZE }, (_, index) =>
+        makeBook({
+          id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        }),
+      );
+      vi.spyOn(ctx.app.get(BooksRepository), 'findBatch')
+        .mockResolvedValueOnce(firstBatch)
+        .mockRejectedValueOnce(new Error('conexión perdida'));
+
+      // La conexión se corta: el cliente recibe un error de red, no un 200 terminado.
+      await expect(
+        api().get('/api/books/export').set('Cookie', cookie).buffer(true),
+      ).rejects.toThrow(/aborted|socket hang up|ECONNRESET/);
     });
   });
 });

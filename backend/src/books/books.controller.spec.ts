@@ -1,5 +1,7 @@
-import { BadRequestException, StreamableFile } from '@nestjs/common';
-import { Readable } from 'node:stream';
+import { EventEmitter } from 'node:events';
+import { PassThrough, Readable } from 'node:stream';
+import { BadRequestException, Logger, StreamableFile } from '@nestjs/common';
+import type { Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { PaginatedResult } from '../common/pagination/pagination.js';
@@ -15,6 +17,18 @@ import type { BooksExportService } from './books-export.service.js';
 import { BooksController } from './books.controller.js';
 import type { BooksService } from './books.service.js';
 import type { BookListQueryDto } from './dto/book-list-query.dto.js';
+
+function fakeResponse(destroyed = false) {
+  const response = Object.assign(new EventEmitter(), {
+    destroyed,
+    headersSent: true,
+    statusCode: 200,
+    destroy: vi.fn(),
+    send: vi.fn(),
+    end: vi.fn(),
+  });
+  return response as typeof response & Response;
+}
 
 describe('BooksController', () => {
   let books: MockProxy<BooksService>;
@@ -70,7 +84,11 @@ describe('BooksController', () => {
     vi.setSystemTime(new Date('2026-09-30T15:00:00.000Z'));
     exporter.createCsvStream.mockResolvedValue(Readable.from(['a']));
 
-    const file = await controller.export({ genreId: 'g1' }, REQUEST_CONTEXT);
+    const file = await controller.export(
+      { genreId: 'g1' },
+      REQUEST_CONTEXT,
+      fakeResponse(),
+    );
 
     expect(exporter.createCsvStream).toHaveBeenCalledWith(
       { genreId: 'g1' },
@@ -82,6 +100,68 @@ describe('BooksController', () => {
       disposition: 'attachment; filename="libros-2026-09-30.csv"',
     });
     vi.useRealTimers();
+  });
+
+  it('export propaga el error si el primer lote falla (lo formatea el filtro global)', async () => {
+    exporter.createCsvStream.mockRejectedValue(new Error('db caída'));
+    await expect(
+      controller.export({}, REQUEST_CONTEXT, fakeResponse()),
+    ).rejects.toThrow('db caída');
+  });
+
+  it('un fallo a mitad del stream se registra y destruye la respuesta', async () => {
+    exporter.createCsvStream.mockResolvedValue(new PassThrough());
+    const logError = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const file = await controller.export({}, REQUEST_CONTEXT, fakeResponse());
+    const response = fakeResponse();
+    const error = new Error('conexión perdida');
+
+    file.errorHandler(error, response);
+
+    expect(response.destroy).toHaveBeenCalledWith(error);
+    expect(response.send).not.toHaveBeenCalled();
+    expect(response.end).not.toHaveBeenCalled();
+    expect(String(logError.mock.calls[0][0])).toContain('conexión perdida');
+    logError.mockRestore();
+  });
+
+  it('no destruye una respuesta ya cerrada', async () => {
+    exporter.createCsvStream.mockResolvedValue(new PassThrough());
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const file = await controller.export({}, REQUEST_CONTEXT, fakeResponse());
+    const response = fakeResponse(true);
+
+    file.errorHandler(new Error('x'), response);
+
+    expect(response.destroy).not.toHaveBeenCalled();
+  });
+
+  it('si el cliente se desconecta, destruye el stream CSV', async () => {
+    const stream = new PassThrough();
+    exporter.createCsvStream.mockResolvedValue(stream);
+    const response = fakeResponse();
+
+    await controller.export({}, REQUEST_CONTEXT, response);
+    response.emit('close');
+
+    expect(stream.destroyed).toBe(true);
+  });
+
+  it('no destruye el stream si ya terminó al cerrarse la respuesta', async () => {
+    const stream = Readable.from(['a']);
+    exporter.createCsvStream.mockResolvedValue(stream);
+    const response = fakeResponse();
+
+    await controller.export({}, REQUEST_CONTEXT, response);
+    for await (const chunk of stream) {
+      expect(chunk).toBe('a');
+    }
+    const destroy = vi.spyOn(stream, 'destroy');
+    response.emit('close');
+
+    expect(destroy).not.toHaveBeenCalled();
   });
 
   it('uploadImage exige el archivo', () => {
