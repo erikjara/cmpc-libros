@@ -22,7 +22,8 @@ export function BookDetailPage() {
 
   if (bookQuery.isPending) {
     return (
-      <div data-testid="book-skeleton" className="grid gap-6 md:grid-cols-[240px_1fr]">
+      <div data-testid="book-skeleton" role="status" className="grid gap-6 md:grid-cols-[240px_1fr]">
+        <span className="sr-only">Cargando…</span>
         <Skeleton className="aspect-[2/3] w-full" />
         <div className="flex flex-col gap-3">
           <Skeleton className="h-8 w-2/3" />

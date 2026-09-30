@@ -19,6 +19,7 @@ describe('BookDetailPage', () => {
   it('muestra todos los datos del libro con precio en CLP y portada', async () => {
     renderDetail(withImage.id)
     expect(screen.getByTestId('book-skeleton')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Cargando…')
     expect(await screen.findByRole('heading', { name: 'Cien años de soledad' })).toBeInTheDocument()
     expect(screen.getByText('Gabriel García Márquez')).toBeInTheDocument()
     expect(screen.getByText('Editorial Sudamericana')).toBeInTheDocument()

@@ -14,7 +14,8 @@ import { useBookSearchParams } from './useBookSearchParams'
 
 function BooksTableSkeleton() {
   return (
-    <div data-testid="books-skeleton" className="flex flex-col gap-2">
+    <div data-testid="books-skeleton" role="status" className="flex flex-col gap-2">
+      <span className="sr-only">Cargando…</span>
       {Array.from({ length: 6 }, (_, index) => (
         <Skeleton key={index} className="h-9 w-full" />
       ))}
@@ -51,6 +52,12 @@ export function BooksListPage() {
           </Link>
         </div>
       </div>
+
+      <p aria-live="polite" aria-atomic="true" className="sr-only">
+        {result && redirectPage === null
+          ? `${result.meta.total} ${result.meta.total === 1 ? 'libro encontrado' : 'libros encontrados'}`
+          : ''}
+      </p>
 
       <BooksFilters values={state} onChange={setFilters} onClear={clearFilters} hasActiveFilters={hasActiveFilters} />
 

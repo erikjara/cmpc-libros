@@ -20,6 +20,12 @@ describe('BooksListPage', () => {
     expect(screen.getByText('25 libros · Página 1 de 3')).toBeInTheDocument()
   })
 
+  it('anuncia la carga y la cantidad de resultados a lectores de pantalla', async () => {
+    renderList()
+    expect(screen.getByRole('status')).toHaveTextContent('Cargando…')
+    expect(await screen.findByText('25 libros encontrados')).toHaveAttribute('aria-live', 'polite')
+  })
+
   it('pide al servidor el orden de la URL', async () => {
     renderList('/books?sort=price:asc')
     const rows = await screen.findAllByRole('row')
