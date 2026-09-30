@@ -9,7 +9,8 @@ import {
   ApiDataResponse,
   ApiErrors,
 } from '../common/swagger/api-docs.decorators.js';
-import { CatalogRepository, type CatalogItem } from './catalog.repository.js';
+import type { CatalogItem } from '../common/types/catalog-item.js';
+import { CatalogRepository } from './catalog.repository.js';
 import { CatalogItemDto } from './dto/catalog-item.dto.js';
 import { CatalogQueryDto } from './dto/catalog-query.dto.js';
 

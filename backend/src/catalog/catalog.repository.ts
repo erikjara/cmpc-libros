@@ -1,13 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service.js';
 import { escapeLike } from '../books/book-query.js';
+import type { CatalogItem } from '../common/types/catalog-item.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 export type CatalogKind = 'author' | 'publisher' | 'genre';
-
-export interface CatalogItem {
-  id: string;
-  name: string;
-}
 
 export interface CatalogSearch {
   search?: string;

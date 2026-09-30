@@ -1,9 +1,5 @@
+import type { CatalogItem } from '../common/types/catalog-item.js';
 import type { BookWithRelations } from './books.repository.js';
-
-export interface CatalogItem {
-  id: string;
-  name: string;
-}
 
 export interface BookDto {
   id: string;
