@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query'
 import { ApiError } from '@/lib/api-error'
 import type { Book, BookInput, BookListQuery } from '@/lib/api-types'
 import { catalogKeys } from '@/features/catalog/catalog.queries'
@@ -64,12 +64,32 @@ export function useSaveBook() {
   })
 }
 
+// Remover una query con un observer montado hace que este la vuelva a crear y a pedir (en el
+// detalle, un GET que responde 404). Se remueve cuando se desmonta su último observer.
+function removeQueryWhenUnobserved(queryClient: QueryClient, queryKey: QueryKey): void {
+  const cache = queryClient.getQueryCache()
+  const query = cache.find({ queryKey, exact: true })
+  if (!query) return
+  if (query.getObserversCount() === 0) {
+    cache.remove(query)
+    return
+  }
+  const unsubscribe = cache.subscribe((event) => {
+    if (event.query !== query) return
+    if (event.type === 'removed' || (event.type === 'observerRemoved' && query.getObserversCount() === 0)) {
+      unsubscribe()
+      cache.remove(query)
+    }
+  })
+}
+
 export function useDeleteBook() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => deleteBook(id),
     onSuccess: async (_data, id) => {
-      queryClient.removeQueries({ queryKey: bookKeys.detail(id) })
+      await queryClient.cancelQueries({ queryKey: bookKeys.detail(id), exact: true })
+      removeQueryWhenUnobserved(queryClient, bookKeys.detail(id))
       await queryClient.invalidateQueries({ queryKey: bookKeys.lists() })
     },
   })

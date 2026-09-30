@@ -7,6 +7,7 @@ import { errorBody } from '@/test/msw/handlers'
 import { server } from '@/test/msw/server'
 import { renderWithProviders } from '@/test/render'
 import { BookDetailPage } from './BookDetailPage'
+import { bookKeys } from './books.queries'
 
 const [withImage, soldOut] = buildBooks()
 
@@ -60,6 +61,26 @@ describe('BookDetailPage', () => {
     expect(await screen.findByText('Libro eliminado')).toBeInTheDocument()
     expect(await screen.findByTestId('location')).toHaveTextContent('/books')
     expect(db.books.some((book) => book.id === withImage.id)).toBe(false)
+  })
+
+  it('tras eliminar no vuelve a pedir el libro ni muestra "Libro no encontrado"', async () => {
+    const requests: string[] = []
+    const record = ({ request }: { request: Request }) => {
+      requests.push(`${request.method} ${new URL(request.url).pathname}`)
+    }
+    server.events.on('request:start', record)
+    const { user, queryClient } = renderDetail(withImage.id)
+    await user.click(await screen.findByRole('button', { name: 'Eliminar' }))
+    await screen.findByRole('alertdialog')
+    await user.click(screen.getByRole('button', { name: 'Eliminar' }))
+    expect(await screen.findByTestId('location')).toHaveTextContent('/books')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    server.events.removeListener('request:start', record)
+    const deleteIndex = requests.indexOf(`DELETE /api/books/${withImage.id}`)
+    expect(deleteIndex).toBeGreaterThan(-1)
+    expect(requests.slice(deleteIndex + 1)).not.toContain(`GET /api/books/${withImage.id}`)
+    expect(screen.queryByRole('heading', { name: 'Libro no encontrado' })).not.toBeInTheDocument()
+    await waitFor(() => expect(queryClient.getQueryState(bookKeys.detail(withImage.id))).toBeUndefined())
   })
 
   it('no elimina si se cancela la confirmación', async () => {
