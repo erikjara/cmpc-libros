@@ -1,0 +1,396 @@
+# CMPC-libros
+
+Aplicación web para gestionar el inventario de la tienda CMPC-libros. Permite mantener el
+catálogo de libros (título, autor, editorial, género, precio y stock), buscarlo y filtrarlo en
+tiempo real, cargar portadas, exportar el inventario a CSV y consultar la auditoría de cada
+operación.
+
+## Funcionalidades
+
+- **Inicio de sesión** con sesión segura en cookie `httpOnly`.
+- **Listado de libros** con paginación del servidor, búsqueda en tiempo real por título o autor,
+  filtros por género, editorial, autor y disponibilidad, y ordenamiento por varias columnas a la
+  vez.
+- **Alta y edición** con validación en vivo, autor, editorial y género a elegir o crear en el
+  mismo formulario, y carga de imagen de portada con vista previa.
+- **Detalle** del libro con su disponibilidad y precio en pesos chilenos.
+- **Eliminación reversible** (soft delete) con confirmación.
+- **Exportación CSV** del listado con los filtros activos, lista para abrir en Excel.
+- **Auditoría** de altas, ediciones, eliminaciones, restauraciones, exportaciones e inicios de
+  sesión, registrada en la misma transacción que el cambio.
+- **API REST documentada** con Swagger.
+
+## Stack
+
+| Capa | Tecnología |
+|---|---|
+| Runtime | Node.js 24 LTS, TypeScript 6.0 |
+| Backend | NestJS 12 (ESM, Express 5), Prisma 7.10 con `@prisma/adapter-pg`, Passport JWT, argon2, class-validator, nestjs-pino, `@nestjs/swagger` |
+| Base de datos | PostgreSQL 18 (extensión `pg_trgm`) |
+| Frontend | Vite 8, React 19, Tailwind CSS 4, shadcn/ui sobre Base UI, TanStack Table 9, TanStack Query 5, React Router 8, react-hook-form 7 + zod 4, axios, Sonner |
+| Tests | Vitest 5 en ambas aplicaciones; Testing Library, MSW 2 y jsdom en el frontend; `vitest-mock-extended` en el backend |
+| Infraestructura | Docker Compose, nginx 1.30, GitHub Actions |
+
+Las dependencias se fijan con versión exacta y lockfile, y se instalan con `npm ci`.
+
+## Inicio rápido con Docker
+
+Requisitos: Docker con Docker Compose v2.
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+El primer arranque construye las imágenes, aplica las migraciones y carga los datos de ejemplo.
+Cuando los tres servicios estén en estado `healthy`:
+
+| Recurso | URL |
+|---|---|
+| Aplicación | http://localhost:8080 |
+| Documentación de la API (Swagger) | http://localhost:8080/api/docs |
+| Estado de la API | http://localhost:8080/api/health |
+
+**Credenciales de demo:** `admin@cmpc.cl` / `Admin123!` (definidas en `.env` con
+`SEED_ADMIN_EMAIL` y `SEED_ADMIN_PASSWORD`).
+
+Comandos útiles:
+
+```bash
+docker compose ps                 # estado y healthchecks de los servicios
+docker compose logs -f backend    # logs JSON de la API
+docker compose down               # detiene el stack y conserva los datos
+docker compose down -v            # detiene el stack y elimina base de datos e imágenes subidas
+```
+
+Los datos de ejemplo se cargan con un seed idempotente: reiniciar el stack no duplica registros.
+
+## Desarrollo local
+
+Requisitos: Node.js 24 y npm 11. Docker se usa solo para PostgreSQL.
+
+1. **Base de datos**
+
+   ```bash
+   docker run -d --name cmpc-postgres \
+     -e POSTGRES_USER=cmpc -e POSTGRES_PASSWORD=cmpc -e POSTGRES_DB=cmpc_libros \
+     -p 5432:5432 -v cmpc-pgdata:/var/lib/postgresql \
+     postgres:18-alpine
+   ```
+
+2. **Backend** (http://localhost:3000/api, Swagger en http://localhost:3000/api/docs)
+
+   ```bash
+   cd backend
+   cp .env.example .env
+   npm ci
+   npx prisma generate
+   npx prisma migrate deploy
+   npx prisma db seed
+   npm run start:dev
+   ```
+
+3. **Frontend** (http://localhost:5173)
+
+   ```bash
+   cd frontend
+   npm ci
+   npm run dev
+   ```
+
+   El servidor de Vite reenvía `/api` a `http://localhost:3000`, de modo que frontend y API
+   comparten origen igual que en Docker.
+
+## Variables de entorno
+
+Docker Compose lee `.env` en la raíz (plantilla: `.env.example`). Para desarrollo local, el
+backend usa `backend/.env` (plantilla: `backend/.env.example`). La configuración se valida al
+arrancar: si falta una variable obligatoria o tiene un formato inválido, la API no inicia.
+
+| Variable | Uso | Valor de demo (Docker) |
+|---|---|---|
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Credenciales y base de datos del servicio `db` | `cmpc`, `cmpc`, `cmpc_libros` |
+| `NODE_ENV` | `development`, `production` o `test` | `production` |
+| `PORT` | Puerto HTTP de la API | `3000` |
+| `DATABASE_URL` | Conexión a PostgreSQL | `postgresql://cmpc:cmpc@db:5432/cmpc_libros?schema=public` |
+| `JWT_SECRET` | Firma de los JWT; mínimo 32 caracteres | valor de demo; generar uno con `openssl rand -base64 48` |
+| `JWT_EXPIRES_IN` | Duración de la sesión | `8h` |
+| `COOKIE_SECURE` | Marca la cookie de sesión como `Secure`; `true` cuando se sirve por HTTPS | `false` |
+| `CORS_ORIGIN` | Origen permitido para peticiones con credenciales | `http://localhost:8080` |
+| `UPLOADS_DIR` | Directorio de imágenes de portada | `/app/uploads` (volumen `uploads`) |
+| `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | Usuario administrador creado por el seed | `admin@cmpc.cl`, `Admin123!` |
+
+`DATABASE_URL` debe coincidir con las credenciales `POSTGRES_*`. En desarrollo local el host es
+`localhost` y `CORS_ORIGIN` es `http://localhost:5173`.
+
+## Guía de uso
+
+### Iniciar sesión
+
+Abre http://localhost:8080 e ingresa con las credenciales de demo. La sesión dura lo definido en
+`JWT_EXPIRES_IN`; cuando expira, la aplicación vuelve a la pantalla de login y, tras ingresar,
+regresa a la página en la que estabas.
+
+### Listado de libros
+
+- **Búsqueda:** escribe en el buscador para filtrar por título o autor. La búsqueda se aplica
+  automáticamente al dejar de escribir.
+- **Filtros:** género, editorial, autor y disponibilidad (todos, disponibles o agotados).
+  "Limpiar filtros" vuelve al listado completo.
+- **Orden por varias columnas:** cada clic en un encabezado alterna ascendente, descendente y
+  sin orden. Las columnas se suman al orden existente y un indicador muestra su prioridad; por
+  ejemplo, primero por género y, dentro de cada género, por precio.
+- **Paginación:** la navegación entre páginas se resuelve en el servidor.
+- **URL compartible:** la página, la búsqueda, los filtros y el orden quedan en la URL, así que un
+  listado se puede recargar o compartir tal cual.
+
+### Crear y editar un libro
+
+Desde el listado, "Nuevo libro" abre el formulario. Los errores se muestran por campo mientras
+escribes y el botón de guardar se habilita cuando el formulario es válido.
+
+- **Autor, editorial y género:** elige un valor existente o escribe uno nuevo; se crea al
+  guardar el libro.
+- **Precio** en pesos chilenos (hasta dos decimales) y **stock** como cantidad entera. Un libro
+  con stock 0 figura como agotado.
+- **Portada:** JPEG, PNG o WebP de hasta 2 MB, con vista previa antes de guardar. La imagen se
+  sube después de guardar los datos; si la subida falla, el libro queda guardado y la aplicación
+  lo informa para reintentar desde la edición.
+
+### Detalle
+
+Muestra la portada (o una imagen genérica), todos los datos del libro, su disponibilidad
+("Disponible" con la cantidad en stock, o "Agotado") y el precio en CLP, junto con las acciones
+Editar y Eliminar.
+
+### Eliminar
+
+La eliminación pide confirmación y es reversible: el libro deja de aparecer en el listado, pero
+se conserva en la base de datos y la API permite restaurarlo con
+`POST /api/books/:id/restore`.
+
+### Exportar a CSV
+
+"Exportar CSV" descarga el inventario con los filtros y la búsqueda activos (sin paginar). El
+archivo usa UTF-8 con BOM para que Excel muestre correctamente tildes y eñes, y trae las columnas
+`ID, Título, Autor, Editorial, Género, Precio, Stock, Disponible, Creado`. La exportación se
+genera en streaming y queda registrada en la auditoría.
+
+### API y Swagger
+
+La documentación interactiva está en http://localhost:8080/api/docs y está disponible en todos
+los entornos, también con `NODE_ENV=production`. Swagger comparte origen con la aplicación:
+después de ejecutar `POST /api/auth/login` desde Swagger (o de iniciar sesión en la aplicación en
+el mismo navegador), las siguientes llamadas usan la cookie de sesión. Los clientes de API
+también pueden enviar el token en `Authorization: Bearer <jwt>`.
+
+`POST /api/auth/logout` es público y responde siempre 204: limpia la cookie aunque la sesión ya
+haya expirado. Los parámetros de query no declarados se rechazan con 400, y los filtros vacíos o
+con solo espacios se tratan como ausentes.
+
+Ejemplo con `curl`:
+
+```bash
+curl -c cookies.txt -H 'Content-Type: application/json' \
+  -d '{"email":"admin@cmpc.cl","password":"Admin123!"}' \
+  http://localhost:8080/api/auth/login
+
+curl -b cookies.txt 'http://localhost:8080/api/books?search=neruda&sort=price:desc,title:asc&limit=5'
+```
+
+Las respuestas exitosas tienen la forma `{ data, meta? }` y los errores
+`{ statusCode, error, message, path, timestamp, requestId }`.
+
+## Arquitectura
+
+```mermaid
+flowchart LR
+    user["Navegador"] -- "HTTP :8080" --> web["nginx<br/>SPA + proxy /api"]
+    web -- "/api/*" --> api["NestJS 12"]
+    api --> db[("PostgreSQL 18")]
+    api --> uploads[("volumen uploads")]
+```
+
+- nginx sirve el frontend y reenvía `/api` al backend: un único origen, sin CORS en el
+  despliegue.
+- El backend se organiza en capas controller → service → repository, con transacciones que
+  incluyen la auditoría.
+- El frontend se organiza por features y guarda el estado del listado en la URL.
+
+Detalle completo:
+
+- [docs/architecture.md](docs/architecture.md): componentes, módulos, ciclo de una request y
+  decisiones de diseño.
+- [docs/database.md](docs/database.md): modelo relacional, índices, soft delete y transacciones.
+- [docs/schema.dbml](docs/schema.dbml): el mismo modelo en DBML para
+  [dbdiagram.io](https://dbdiagram.io).
+- [docs/design.md](docs/design.md): documento de diseño de la solución.
+
+## Supuestos y decisiones
+
+### Dominio
+
+- **Disponibilidad = stock.** Se guarda `stock` (entero ≥ 0) y la disponibilidad se deriva como
+  `stock > 0`. Una tienda que digitaliza su inventario necesita cantidades; un booleano perdería
+  esa información y podría contradecir al stock. El filtro "disponible / agotado" se traduce a
+  `stock > 0` / `stock = 0`.
+- **Un autor por libro.** Cubre la gran mayoría del catálogo y mantiene simples los filtros y el
+  formulario. La evolución a varios autores está diseñada (ver Roadmap).
+- **Precio en `Decimal(10,2)` y moneda CLP.** El dinero nunca se guarda como `float`, que
+  acumula errores de redondeo. Se admiten dos decimales para no limitar el modelo a una moneda
+  sin centavos; la interfaz solo muestra decimales cuando el precio los tiene.
+- **Autor, editorial y género normalizados** en tablas propias con nombre único: los filtros son
+  exactos por ID y no se duplican valores por diferencias de espacios.
+- **Escritura por nombre con upsert.** El formulario envía el nombre del autor, la editorial y el
+  género; el backend lo normaliza y lo busca o crea dentro de la misma transacción que guarda el
+  libro. El campo "elegir o crear" no necesita distinguir entre valores existentes y nuevos.
+- **Los nombres de autor, editorial y género distinguen mayúsculas.** "Planeta" y "planeta"
+  serían dos registros distintos; el campo "elegir o crear" sugiere los valores existentes
+  mientras se escribe para guiar a reutilizarlos. La unicidad insensible a mayúsculas está en el
+  Roadmap.
+- **Eliminación reversible (soft delete)** con `deleted_at`: conserva el historial, permite
+  restaurar y mantiene íntegra la auditoría.
+- **Sin registro público.** Es una herramienta interna; los usuarios se crean con el seed.
+
+### API
+
+- **Imagen en un endpoint separado** (`POST /api/books/:id/image`, multipart). El CRUD del libro
+  sigue siendo JSON puro y su contrato en Swagger es simple. El costo son dos requests al crear
+  con portada; si la imagen falla, el libro queda guardado y la interfaz lo informa.
+- **Imágenes en disco local** (volumen Docker) con nombre UUID, validadas por tipo y tamaño. El
+  almacenamiento está detrás de una interfaz, lo que permite pasar a S3 sin tocar la lógica de
+  libros.
+- **Auditoría transaccional.** Cada cambio y su registro de auditoría se confirman juntos.
+- **Exportación en streaming** con lectura por lotes: el tamaño del inventario no afecta la
+  memoria del servidor.
+- **Formato del CSV.** Precio con punto decimal y fechas en ISO 8601 (UTC), para que el archivo
+  se procese igual en cualquier configuración regional. Las celdas que empiezan con `=`, `+`, `-`
+  o `@` se prefijan con `'` para evitar la inyección de fórmulas al abrirlo en una planilla.
+- **Logging HTTP con pino-http.** Cada request produce una línea JSON con `requestId`, método,
+  ruta, status y duración. Se usa el middleware de pino-http y no un interceptor, porque un
+  interceptor no registra las respuestas que se resuelven antes del controller (el 401 del guard
+  o el 404 de una ruta inexistente).
+- **IP real detrás de nginx.** El backend confía en un salto de proxy (`trust proxy`), de modo
+  que la IP de la auditoría y el límite de intentos de login corresponden al cliente y no al
+  contenedor de nginx.
+
+### Seguridad
+
+- **JWT en cookie `httpOnly` y no en `localStorage`.** El código del navegador nunca accede al
+  token, por lo que un XSS no puede robarlo (OWASP desaconseja guardar tokens en
+  `localStorage`). La cookie es `SameSite=Strict` y, como nginx sirve frontend y API en el mismo
+  origen, no se necesita CORS en el despliegue. La API también acepta `Authorization: Bearer`
+  para Swagger y otros clientes.
+- **Argon2id para contraseñas**, primera recomendación de OWASP; bcrypt se considera legado y
+  trunca las contraseñas a 72 bytes.
+
+### Frontend
+
+- **shadcn/ui sobre Base UI**, las primitivas por defecto de shadcn: componentes accesibles cuyo
+  código vive en el repositorio y se adapta sin depender de un tema cerrado.
+- **TanStack Table en lugar de MUI X DataGrid.** En DataGrid el ordenamiento por varias columnas
+  es una funcionalidad de pago (Pro); TanStack Table ofrece orden múltiple, orden manual y
+  paginación del servidor de forma nativa y gratuita, y deja el marcado bajo nuestro control.
+- **Estado del listado en la URL**, que además es la clave de caché de TanStack Query.
+- **Etiquetas de filtros tras recargar.** La URL guarda el ID del autor o la editorial filtrados;
+  al recargar, la etiqueta visible se resuelve con `GET /api/authors?limit=50` (o
+  `/api/publishers`). Un endpoint por ID está en el Roadmap.
+- **Exportación como enlace directo.** "Exportar CSV" es una descarga nativa del navegador: con la
+  sesión expirada, el navegador descarga la respuesta de error en lugar del archivo. La descarga
+  con manejo de errores está en el Roadmap.
+
+### Plataforma
+
+- **Prisma 7 y no Prisma 8.** Prisma 8 es una reescritura que aún está en release candidate; 7.10
+  es estable y con soporte extendido. El acceso a datos está aislado en repositorios, lo que
+  acota una migración futura.
+- **TypeScript 6 y no 7.** `@nestjs/swagger` 12 todavía no admite TypeScript 7.
+- **Versiones exactas y lockfile.** Todas las dependencias se fijan sin rangos y se instalan con
+  `npm ci`, en particular tras el incidente de supply chain que afectó a axios en marzo de 2026:
+  una actualización no revisada no llega por accidente a una build.
+- **Vitest en ambas aplicaciones.** Es el runner por defecto de NestJS 12 y de Vite: una sola
+  herramienta y una sola forma de configurar la cobertura.
+- **Monorepo simple.** `backend/` y `frontend/` son aplicaciones independientes, sin workspaces
+  ni herramientas de monorepo. El costo es declarar los tipos de la API en ambos lados; la mejora
+  prevista es generarlos desde OpenAPI.
+
+## Calidad: tests y cobertura
+
+```bash
+cd backend && npm run test:cov
+cd frontend && npm run test:cov
+```
+
+- **Umbral forzado de 80 %** en líneas, ramas, funciones y sentencias, definido en
+  `coverage.thresholds` de cada `vitest.config.ts`. El comando falla si no se alcanza, tanto en
+  local como en CI.
+- **`coverage.include` explícito:** los archivos sin tests también cuentan, en lugar de medir
+  solo lo que los tests importan.
+- **Backend:** servicios con repositorios simulados (incluido que la auditoría use la misma
+  transacción), controllers, parseo de orden y construcción de consultas, interceptor de
+  respuestas, filtro de excepciones, guard y extracción del token, exportación CSV (escapado y
+  BOM) y almacenamiento en disco con un directorio temporal.
+- **Frontend:** hooks (debounce, parámetros de búsqueda, queries y mutaciones), cliente HTTP
+  (manejo de 401 y errores), protección de rutas, login, tabla (orden reflejado en la URL),
+  filtros, formulario (validación), selector de imagen y detalle, con MSW simulando la API.
+
+Exclusiones de cobertura y su motivo:
+
+| Aplicación | Excluido | Motivo |
+|---|---|---|
+| Backend | `main.ts` | Arranque del servidor; se verifica al levantar el stack. |
+| Backend | `*.module.ts` | Declaraciones de inyección de dependencias sin lógica. |
+| Backend | DTOs | Clases declarativas; sus reglas se ejercitan en los tests de validación y controllers. |
+| Backend | Cliente generado de Prisma | Código generado por la herramienta. |
+| Frontend | `src/components/ui/**` | Componentes generados por el CLI de shadcn. |
+| Frontend | `main.tsx` | Punto de montaje de React. |
+
+## Integración continua
+
+GitHub Actions (`.github/workflows/ci.yml`) se ejecuta en cada push y en cada pull request a
+`main`:
+
+| Job | Pasos |
+|---|---|
+| Backend | `npm ci`, `prisma generate`, lint, typecheck, tests con cobertura |
+| Frontend | `npm ci`, lint, typecheck, tests con cobertura |
+| Docker | valida `docker-compose.yml`, construye las imágenes, levanta el stack, espera los healthchecks y consulta `/api/health` a través de nginx |
+
+## Roadmap
+
+Evoluciones previstas para próximas versiones, con su diseño propuesto:
+
+| Evolución | Diseño propuesto |
+|---|---|
+| Refresh tokens | Access token de vida corta en cookie + refresh token rotativo en cookie httpOnly restringida a `/api/auth/refresh`, almacenado hasheado en BD con detección de reutilización |
+| Roles (RBAC) | Columna `role` en `users`, decorador `@Roles()` + `RolesGuard` |
+| Almacenamiento S3/MinIO | Nueva clase `S3StorageService implements StorageService`, seleccionada por variable de entorno |
+| Export masivo asíncrono | Cola BullMQ + Redis, job que genera el archivo y notifica/descarga por URL firmada |
+| Varios autores por libro | Tabla puente `book_authors (book_id, author_id, position)` |
+| Papelera en la UI | Vista de libros eliminados usando `POST /books/:id/restore` (endpoint ya existe) |
+| Cliente tipado | `openapi-typescript` generado desde el Swagger del backend |
+| Tests e2e | Testcontainers (backend) y Playwright (frontend) |
+| Prisma 8 | Migrar cuando alcance GA; el acceso a datos está aislado en repositorios, lo que acota el cambio |
+| Nombres de catálogo sin distinguir mayúsculas | Índice único sobre `lower(name)` (o columna `citext`) en autores, editoriales y géneros, con upsert por nombre normalizado |
+| Catálogos por ID | `GET /api/authors/:id` (y equivalentes) o `?ids=` en los listados, para resolver las etiquetas de los filtros sin traer 50 registros |
+| Exportación con manejo de errores | Descarga vía `fetch` + `Blob` con `withCredentials`: ante un 401 redirige al login y ante otros errores muestra un aviso, en lugar de descargar el cuerpo del error |
+
+## Estructura del repositorio
+
+```
+.
+├── backend/                 API NestJS + Prisma
+│   ├── prisma/              schema.prisma, migraciones y seed
+│   ├── src/                 módulos de la aplicación
+│   ├── Dockerfile           build multi-stage, usuario no root
+│   └── docker-entrypoint.sh migraciones → seed → API
+├── frontend/                SPA Vite + React
+│   ├── src/                 app, features, componentes y utilidades
+│   ├── Dockerfile           build de Vite servido por nginx
+│   └── nginx.conf           SPA, caché de assets y proxy de /api
+├── docs/                    arquitectura, modelo de datos y diseño
+├── .github/workflows/       CI
+├── docker-compose.yml
+├── .env.example
+└── README.md
+```
