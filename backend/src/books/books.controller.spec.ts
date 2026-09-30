@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { StreamableFile } from '@nestjs/common';
+import { Readable } from 'node:stream';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { PaginatedResult } from '../common/pagination/pagination.js';
 import {
@@ -8,18 +10,21 @@ import {
   REQUEST_CONTEXT,
 } from '../testing/book-fixtures.js';
 import { toBookDto } from './book.mapper.js';
+import type { BooksExportService } from './books-export.service.js';
 import { BooksController } from './books.controller.js';
 import type { BooksService } from './books.service.js';
 import type { BookListQueryDto } from './dto/book-list-query.dto.js';
 
 describe('BooksController', () => {
   let books: MockProxy<BooksService>;
+  let exporter: MockProxy<BooksExportService>;
   let controller: BooksController;
   const dto = toBookDto(makeBook());
 
   beforeEach(() => {
     books = mock<BooksService>();
-    controller = new BooksController(books);
+    exporter = mock<BooksExportService>();
+    controller = new BooksController(books, exporter);
   });
 
   it('list delega la query al service', async () => {
@@ -57,5 +62,24 @@ describe('BooksController', () => {
     );
     expect(books.remove).toHaveBeenCalledWith(BOOK_ID, REQUEST_CONTEXT);
     expect(books.restore).toHaveBeenCalledWith(BOOK_ID, REQUEST_CONTEXT);
+  });
+
+  it('export devuelve un StreamableFile CSV con nombre de archivo fechado', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-30T15:00:00.000Z'));
+    exporter.createCsvStream.mockResolvedValue(Readable.from(['a']));
+
+    const file = await controller.export({ genreId: 'g1' }, REQUEST_CONTEXT);
+
+    expect(exporter.createCsvStream).toHaveBeenCalledWith(
+      { genreId: 'g1' },
+      REQUEST_CONTEXT,
+    );
+    expect(file).toBeInstanceOf(StreamableFile);
+    expect(file.getHeaders()).toMatchObject({
+      type: 'text/csv; charset=utf-8',
+      disposition: 'attachment; filename="libros-2026-09-30.csv"',
+    });
+    vi.useRealTimers();
   });
 });

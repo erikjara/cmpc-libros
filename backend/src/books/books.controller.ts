@@ -8,11 +8,13 @@ import {
   Patch,
   Post,
   Query,
+  StreamableFile,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCookieAuth,
   ApiOperation,
+  ApiProduces,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -25,7 +27,10 @@ import {
 import type { RequestContext } from '../common/types/request-context.js';
 import { UUID_PARAM_PIPE } from '../common/validation/uuid-param.pipe.js';
 import type { BookDto } from './book.mapper.js';
+import { BooksExportService } from './books-export.service.js';
 import { BooksService } from './books.service.js';
+import { exportFileName } from './csv.js';
+import { BookFiltersDto } from './dto/book-filters.dto.js';
 import { BookListQueryDto } from './dto/book-list-query.dto.js';
 import { BookResponseDto } from './dto/book-response.dto.js';
 import { CreateBookDto } from './dto/create-book.dto.js';
@@ -37,7 +42,10 @@ import { UpdateBookDto } from './dto/update-book.dto.js';
 @ApiErrors(401)
 @Controller('books')
 export class BooksController {
-  constructor(private readonly books: BooksService) {}
+  constructor(
+    private readonly books: BooksService,
+    private readonly exporter: BooksExportService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -47,6 +55,25 @@ export class BooksController {
   @ApiErrors(400)
   list(@Query() query: BookListQueryDto): Promise<PaginatedResult<BookDto>> {
     return this.books.list(query);
+  }
+
+  // Declarada antes de ':id' para que "export" no se interprete como id.
+  @Get('export')
+  @ApiOperation({
+    summary: 'Exporta a CSV (streaming) los libros que cumplen los filtros',
+  })
+  @ApiProduces('text/csv')
+  @ApiResponse({ status: 200, description: 'Archivo CSV con BOM UTF-8' })
+  @ApiErrors(400)
+  async export(
+    @Query() filters: BookFiltersDto,
+    @ReqContext() context: RequestContext,
+  ): Promise<StreamableFile> {
+    const stream = await this.exporter.createCsvStream(filters, context);
+    return new StreamableFile(stream, {
+      type: 'text/csv; charset=utf-8',
+      disposition: `attachment; filename="${exportFileName(new Date())}"`,
+    });
   }
 
   @Get(':id')
