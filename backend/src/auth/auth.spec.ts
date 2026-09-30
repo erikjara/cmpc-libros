@@ -1,4 +1,8 @@
-import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import {
+  ExecutionContext,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Reflector } from '@nestjs/core';
@@ -229,6 +233,28 @@ describe('AuthService', () => {
     ).rejects.toThrow('Credenciales inválidas');
     expect(audit.record).not.toHaveBeenCalled();
     expect(jwt.signAsync).not.toHaveBeenCalled();
+  });
+
+  it('registra con warn el intento fallido con email e IP, sin la contraseña', async () => {
+    users.findByEmail.mockResolvedValue(user);
+    hasher.verify.mockResolvedValue(false);
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+
+    await expect(
+      service.login(
+        { email: 'admin@cmpc.cl', password: 'clave-secreta-123' },
+        context,
+      ),
+    ).rejects.toThrow(UnauthorizedException);
+
+    expect(warn).toHaveBeenCalledOnce();
+    const message = String(warn.mock.calls[0][0]);
+    expect(message).toContain('admin@cmpc.cl');
+    expect(message).toContain('10.0.0.1');
+    expect(message).not.toContain('clave-secreta-123');
+    warn.mockRestore();
   });
 
   it('login con email inexistente verifica contra null y responde 401', async () => {

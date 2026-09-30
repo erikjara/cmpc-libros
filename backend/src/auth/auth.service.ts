@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuditService } from '../audit/audit.service.js';
 import type { RequestContext } from '../common/types/request-context.js';
@@ -16,6 +16,8 @@ export interface LoginResult {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly users: UsersRepository,
     private readonly hasher: PasswordHasher,
@@ -34,6 +36,9 @@ export class AuthService {
       credentials.password,
     );
     if (!user || !valid) {
+      this.logger.warn(
+        `Inicio de sesión fallido: email=${credentials.email} ip=${context.ip ?? 'desconocida'}`,
+      );
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
