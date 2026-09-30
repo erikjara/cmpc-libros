@@ -35,6 +35,24 @@ Principios que guían el diseño:
 onboarding de nuevos desarrolladores. **Trade-off:** los tipos de la API se duplican entre front y back; mejora
 documentada: generar el cliente desde OpenAPI (`openapi-typescript`).
 
+### Stack y versiones
+
+Versiones verificadas contra el registry de npm y las guías oficiales de migración. Se fijan con
+versión exacta y lockfile (`npm ci`), en particular por el incidente de supply chain de axios de
+marzo de 2026.
+
+| Capa | Tecnología |
+|---|---|
+| Runtime | Node 24 LTS (`node:24-alpine`), TypeScript 6.0 (TS 7 aún no es soportado por `@nestjs/swagger`) |
+| Backend | NestJS 12 (ESM, Express 5), class-validator, `@nestjs/swagger`, Passport JWT, argon2, nestjs-pino |
+| Datos | PostgreSQL 18, Prisma 7.10 (`prisma.config.ts`, generator `prisma-client`, `@prisma/adapter-pg`) |
+| Frontend | Vite 8, React 19, Tailwind 4, shadcn/ui (Base UI), TanStack Table 9, TanStack Query 5, React Router 8 (data mode), react-hook-form 7 + zod 4, axios, Sonner |
+| Tests | Vitest 5 en ambas apps (+ Testing Library, MSW 2, jsdom en el frontend) |
+| Infra | Docker Compose, nginx 1.30 |
+
+**Prisma 7 y no 8:** Prisma 8 es una reescritura aún en release candidate; se fija 7.10 (con
+soporte extendido) y la migración queda en el Roadmap.
+
 ## 3. Modelo de datos (PostgreSQL + Prisma)
 
 ### Tablas
@@ -67,8 +85,10 @@ documentada: generar el cliente desde OpenAPI (`openapi-typescript`).
 - `books.deleted_at` (todas las consultas filtran `deleted_at IS NULL`).
 - `books.price`, `books.created_at` (ordenamiento).
 - **GIN `pg_trgm`** sobre `books.title` y `authors.name`: la búsqueda en tiempo real usa
-  `ILIKE '%texto%'`, que no puede usar B-tree. Se crea con SQL crudo dentro de la migración Prisma
-  (`CREATE EXTENSION IF NOT EXISTS pg_trgm` + `CREATE INDEX … USING gin (… gin_trgm_ops)`).
+  `ILIKE '%texto%'`, que no puede usar B-tree. La extensión se habilita con SQL crudo en una
+  migración (`CREATE EXTENSION IF NOT EXISTS pg_trgm`) y los índices se **declaran en
+  `schema.prisma`** (`@@index([title(ops: raw("gin_trgm_ops"))], type: Gin)`). Un índice creado
+  solo con SQL crudo genera *drift* y Prisma lo eliminaría en la siguiente migración.
 - `audit_logs (entity, entity_id)`, `audit_logs (user_id)`, `audit_logs (created_at)`.
 
 ### Transacciones
@@ -91,7 +111,7 @@ lo que hace el comportamiento visible y testeable.
 |---|---|
 | `config` | Carga y valida variables de entorno al arrancar (falla rápido) |
 | `prisma` | `PrismaService` global, conexión y shutdown hooks |
-| `auth` | Login, `JwtStrategy`, `JwtAuthGuard` **global** + decorador `@Public()`, throttling en login |
+| `auth` | Login/logout, `JwtStrategy` (cookie o Bearer), `JwtAuthGuard` **global** + decorador `@Public()`, throttling en login |
 | `users` | `UsersRepository` (búsqueda por email). Usuarios creados por seed |
 | `books` | `BooksController` → `BooksService` → `BooksRepository`; `BooksExportService`; DTOs |
 | `catalog` | Listados de `authors`, `publishers`, `genres` con `?search=` |
@@ -116,7 +136,8 @@ lo que hace el comportamiento visible y testeable.
 
 | Método | Ruta | Notas |
 |---|---|---|
-| POST | `/auth/login` | Público, rate limit. Responde `{ accessToken, user }` |
+| POST | `/auth/login` | Público, rate limit. Emite la cookie de sesión y responde `{ user }` |
+| POST | `/auth/logout` | Elimina la cookie de sesión |
 | GET | `/auth/me` | Usuario autenticado |
 | GET | `/books` | `page`, `limit` (máx. 100), `search`, `genreId`, `publisherId`, `authorId`, `available`, `sort` |
 | GET | `/books/export` | Mismos filtros; CSV en streaming. Declarada antes de `/books/:id` |
@@ -146,7 +167,18 @@ BOM UTF-8 para Excel, registra `EXPORT` en auditoría.
   mapea Prisma `P2025` → 404 y `P2002` → 409.
 - `ValidationPipe` global (`whitelist`, `forbidNonWhitelisted`, `transform`), `helmet`, CORS
   restringido al origen del frontend.
-- Contraseñas con bcrypt; `JWT_SECRET` y expiración desde variables de entorno.
+- Contraseñas con **Argon2id** (primera recomendación de OWASP; bcrypt se considera legado y
+  trunca a 72 bytes). `JWT_SECRET` y expiración desde variables de entorno validadas.
+
+### Sesión
+
+- El JWT viaja en una **cookie `httpOnly`, `SameSite=Strict`** (`Secure` en producción). El
+  frontend nunca accede al token, por lo que un XSS no puede robarlo (OWASP desaconseja
+  `localStorage` para tokens).
+- CSRF mitigado por `SameSite=Strict` y porque frontend y API comparten origen (nginx hace de
+  reverse proxy de `/api`; en desarrollo, el proxy de Vite).
+- `JwtStrategy` extrae el token de la cookie **o** del header `Authorization: Bearer`, para que
+  Swagger y clientes de API sigan funcionando.
 
 ### Supuestos
 
@@ -159,7 +191,8 @@ BOM UTF-8 para Excel, registra `EXPORT` en auditoría.
 
 ### Stack
 
-shadcn/ui (Radix + Tailwind v4), **TanStack Table** (headless), TanStack Query, React Router,
+shadcn/ui (primitivas **Base UI**, el default actual de shadcn, + Tailwind v4), **TanStack Table 9**
+(headless), TanStack Query, React Router 8 en *data mode* (`createBrowserRouter`),
 react-hook-form + zod, axios, Sonner (toasts).
 
 **Decisión documentada:** se descartó MUI X DataGrid porque el ordenamiento multi-columna es una
@@ -172,17 +205,18 @@ de forma nativa y gratuita.
 src/
 ├── app/          providers (QueryClient, Auth, Toaster), router, layout
 ├── components/ui componentes shadcn (generados por CLI; excluidos de cobertura)
-├── lib/          httpClient (axios + interceptores), ApiError, formatters es-CL
+├── lib/          httpClient (axios + interceptor de errores), ApiError, formatters es-CL
 ├── features/
-│   ├── auth/     AuthProvider/useAuth, LoginPage, ProtectedRoute
+│   ├── auth/     useSession (query /auth/me), loader requireAuth, LoginPage, logout
 │   ├── books/    books.api.ts, hooks, BooksListPage, BooksTable, BooksFilters,
 │   │             BookFormPage, BookForm (+ schema zod), ImagePicker, BookDetailPage
 │   └── catalog/  hooks de autores/editoriales/géneros, CatalogCombobox
 └── shared/       useDebounce, ConfirmDialog, ErrorBoundary, EmptyState, NotFoundPage
 ```
 
-Rutas: `/login`, `/books`, `/books/new`, `/books/:id`, `/books/:id/edit` (todas salvo login bajo
-`ProtectedRoute`).
+Rutas: `/login`, `/books`, `/books/new`, `/books/:id`, `/books/:id/edit`. Todas salvo login
+cuelgan de una ruta de layout protegida cuyo `loader` (`requireAuth`) valida la sesión con
+`/auth/me` antes de renderizar.
 
 ### Listado
 
@@ -194,13 +228,14 @@ Rutas: `/login`, `/books`, `/books/new`, `/books/:id`, `/books/:id/edit` (todas 
 - Orden múltiple: clic en encabezado cicla asc → desc → sin orden y se agrega al orden existente;
   badge de prioridad por columna.
 - Paginación del servidor; `placeholderData: keepPreviousData` para evitar parpadeo.
-- Skeleton de carga, estado vacío, botón "Exportar CSV" (descarga blob con token y filtros activos).
+- Skeleton de carga, estado vacío, botón "Exportar CSV": un enlace a `/api/books/export` con los
+  filtros activos (la cookie de sesión viaja sola; no hace falta descargar un blob).
 
 ### Formulario (alta y edición)
 
 - react-hook-form + zod en `mode: 'onChange'` (validación reactiva, errores por campo, submit
-  deshabilitado si inválido o enviando).
-- Autor/editorial/género con combobox "elegir o crear" (`Command` + `Popover`).
+  deshabilitado si inválido o enviando), con los componentes `Field` de shadcn y `Controller`.
+- Autor/editorial/género con el `Combobox` de shadcn en modo "elegir o crear".
 - `ImagePicker` con preview y validación cliente (tipo, ≤ 2 MB), igual regla que el backend.
 - Guardar: mutación → subida de imagen si corresponde → invalidación de queries → toast → detalle.
 
@@ -211,36 +246,41 @@ acciones Editar y Eliminar (con confirmación).
 
 ### Autenticación y errores
 
-- Token en `localStorage`, validado con `/auth/me` al iniciar. **Trade-off documentado** (XSS);
-  alternativa productiva: cookie httpOnly + refresh token.
-- Interceptor axios: agrega `Bearer`; ante 401 cierra sesión y redirige a `/login` recordando
-  la ruta de origen; normaliza errores a `ApiError { status, message }`.
+- Sesión por cookie httpOnly (ver sección 4): el frontend no almacena tokens. `useSession`
+  consulta `/auth/me` y se invalida en login/logout.
+- Interceptor axios (`withCredentials`): ante 401 limpia la sesión y redirige a `/login`
+  recordando la ruta de origen; normaliza errores a `ApiError { status, message }`.
 - Errores de mutaciones → toast; errores de queries → inline con "Reintentar";
   `ErrorBoundary` global para errores de render.
 
 ## 6. Testing
 
-Umbral de 80 % (líneas, ramas, funciones, sentencias) configurado en Jest y Vitest; el comando
-de cobertura falla si no se alcanza.
+**Vitest en ambas apps** (default de NestJS 12 y de Vite): un solo runner y una sola forma de
+configurar cobertura. Umbral de 80 % (líneas, ramas, funciones, sentencias) en
+`coverage.thresholds`, con `coverage.include` explícito para medir también archivos sin tests; el
+comando de cobertura falla si no se alcanza.
 
-**Backend (Jest):** services con repositorios mockeados (incluye verificar que la auditoría usa el
+**Backend (Vitest + `vitest-mock-extended` para el cliente Prisma):** services con repositorios mockeados (incluye verificar que la auditoría usa el
 mismo `tx`), controllers con services mockeados, `parseSort` y `buildBookQuery`,
-`TransformInterceptor`, `AllExceptionsFilter`, `JwtAuthGuard`/`@Public()`, `BooksExportService`
+`TransformInterceptor`, `AllExceptionsFilter`, `JwtAuthGuard`/`@Public()`, extracción del token
+(cookie/Bearer), `BooksExportService`
 (escapado CSV, BOM) y `LocalDiskStorageService` (directorio temporal).
 Excluidos de cobertura: `main.ts`, `*.module.ts`, DTOs, cliente generado de Prisma.
 Tests e2e: ver Roadmap (sección 9).
 
 **Frontend (Vitest + Testing Library + MSW):** `useDebounce` (fake timers), `useBookSearchParams`,
-hooks de queries/mutaciones, `httpClient` (token, 401, `ApiError`), `LoginPage`, `BooksTable`
+hooks de queries/mutaciones, `httpClient` (401, `ApiError`), `requireAuth`, `LoginPage`, `BooksTable`
 (clic en encabezados → `sort` en URL), `BooksFilters`, `BookForm` (validación), `ImagePicker`,
-`BookDetailPage`, `ProtectedRoute`. Setup con polyfills de Radix para jsdom
-(`hasPointerCapture`, `scrollIntoView`, `ResizeObserver`).
+`BookDetailPage`. Setup con polyfills para jsdom que requieren las primitivas de UI
+(`ResizeObserver`, `matchMedia`, `IntersectionObserver`, pointer capture, `scrollIntoView`,
+`getAnimations`).
 Excluidos: `src/components/ui/**`, `main.tsx`.
 
 ## 7. DevOps
 
 - `docker-compose.yml`:
-  - `db`: `postgres:17-alpine`, healthcheck, volumen persistente.
+  - `db`: `postgres:18-alpine`, healthcheck, volumen persistente montado en `/var/lib/postgresql`
+    (ruta que cambió en la imagen 18).
   - `backend`: Dockerfile multi-stage, usuario no root; al iniciar `prisma migrate deploy` →
     seed idempotente (admin + ~60 libros) → `node dist/main`. Volumen `uploads`.
     `depends_on` con `condition: service_healthy`.
@@ -267,7 +307,7 @@ Evoluciones previstas para próximas versiones, con su diseño propuesto:
 
 | Evolución | Diseño propuesto |
 |---|---|
-| Refresh tokens | Cookie httpOnly `SameSite=Strict` con refresh token rotativo almacenado hasheado en BD; access token corto en memoria |
+| Refresh tokens | Access token de vida corta en cookie + refresh token rotativo en cookie httpOnly restringida a `/api/auth/refresh`, almacenado hasheado en BD con detección de reutilización |
 | Roles (RBAC) | Columna `role` en `users`, decorador `@Roles()` + `RolesGuard` |
 | Almacenamiento S3/MinIO | Nueva clase `S3StorageService implements StorageService`, seleccionada por variable de entorno |
 | Export masivo asíncrono | Cola BullMQ + Redis, job que genera el archivo y notifica/descarga por URL firmada |
@@ -275,3 +315,4 @@ Evoluciones previstas para próximas versiones, con su diseño propuesto:
 | Papelera en la UI | Vista de libros eliminados usando `POST /books/:id/restore` (endpoint ya existe) |
 | Cliente tipado | `openapi-typescript` generado desde el Swagger del backend |
 | Tests e2e | Testcontainers (backend) y Playwright (frontend) |
+| Prisma 8 | Migrar cuando alcance GA; el acceso a datos está aislado en repositorios, lo que acota el cambio |
