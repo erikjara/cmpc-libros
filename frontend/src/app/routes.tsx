@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { redirect, type RouteObject } from 'react-router'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { createRedirectIfAuthenticatedLoader, createRequireAuthLoader } from '@/features/auth/require-auth'
+import { BookDetailPage } from '@/features/books/BookDetailPage'
 import { BooksListPage } from '@/features/books/BooksListPage'
 import { FullPageLoader } from '@/shared/FullPageLoader'
 import { AppLayout } from './AppLayout'
@@ -22,6 +23,7 @@ export function createRoutes(queryClient: QueryClient): RouteObject[] {
       children: [
         { index: true, loader: () => redirect('/books') },
         { path: 'books', element: <BooksListPage /> },
+        { path: 'books/:id', element: <BookDetailPage /> },
       ],
     },
   ]
