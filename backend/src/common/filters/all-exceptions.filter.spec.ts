@@ -130,6 +130,20 @@ describe('resolveError', () => {
     });
   });
 
+  it('mapea Prisma P2003 (clave foránea) a 409', () => {
+    expect(resolveError(prismaError('P2003'))).toEqual({
+      statusCode: 409,
+      message: 'Conflicto de integridad de datos',
+    });
+  });
+
+  it.each(['P2000', 'P2004'])('mapea Prisma %s a 400', (code) => {
+    expect(resolveError(prismaError(code))).toEqual({
+      statusCode: 400,
+      message: 'Datos inválidos',
+    });
+  });
+
   it('trata otros códigos de Prisma como 500', () => {
     expect(resolveError(prismaError('P2039')).statusCode).toBe(500);
   });
@@ -200,5 +214,21 @@ describe('AllExceptionsFilter', () => {
     expect(body).toMatchObject({ statusCode: 500, path: '/api/x' });
     expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/);
     expect(setHeader).toHaveBeenCalledWith('X-Request-Id', body.requestId);
+  });
+
+  it('incluye el código de Prisma en el log de un 500', () => {
+    const logSpy = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const { host, json } = createHost({ url: '/api/books' });
+
+    filter.catch(prismaError('P2039'), host);
+
+    expect(logSpy).toHaveBeenCalledOnce();
+    expect(String(logSpy.mock.calls[0][0])).toContain('[P2039]');
+    expect(json.mock.calls[0][0]).toMatchObject({
+      statusCode: 500,
+      message: 'Error interno del servidor',
+    });
   });
 });

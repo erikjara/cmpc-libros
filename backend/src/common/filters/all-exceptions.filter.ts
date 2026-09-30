@@ -77,6 +77,24 @@ function extractHttpMessage(
   return undefined;
 }
 
+const PRISMA_ERRORS: ReadonlyMap<string, ResolvedError> = new Map([
+  ['P2025', { statusCode: 404, message: 'Recurso no encontrado' }],
+  ['P2002', { statusCode: 409, message: 'El recurso ya existe' }],
+  ['P2003', { statusCode: 409, message: 'Conflicto de integridad de datos' }],
+  ['P2000', { statusCode: 400, message: 'Datos inválidos' }],
+  ['P2004', { statusCode: 400, message: 'Datos inválidos' }],
+]);
+
+function describeForLog(exception: unknown): string {
+  if (!(exception instanceof Error)) {
+    return String(exception);
+  }
+  const detail = exception.stack ?? exception.message;
+  return exception instanceof Prisma.PrismaClientKnownRequestError
+    ? `[${exception.code}] ${detail}`
+    : detail;
+}
+
 export function resolveError(exception: unknown): ResolvedError {
   if (exception instanceof HttpException) {
     const statusCode = exception.getStatus();
@@ -89,11 +107,9 @@ export function resolveError(exception: unknown): ResolvedError {
     };
   }
   if (exception instanceof Prisma.PrismaClientKnownRequestError) {
-    if (exception.code === 'P2025') {
-      return { statusCode: 404, message: 'Recurso no encontrado' };
-    }
-    if (exception.code === 'P2002') {
-      return { statusCode: 409, message: 'El recurso ya existe' };
+    const mapped = PRISMA_ERRORS.get(exception.code);
+    if (mapped) {
+      return mapped;
     }
   }
   if (isExpressHttpError(exception)) {
@@ -116,11 +132,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const { statusCode, message } = resolveError(exception);
 
     if (statusCode >= 500) {
-      this.logger.error(
-        exception instanceof Error
-          ? (exception.stack ?? exception.message)
-          : String(exception),
-      );
+      this.logger.error(describeForLog(exception));
     }
 
     // Errores previos a pino-http (JSON malformado) no tienen req.id: se genera aquí.
