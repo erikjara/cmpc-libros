@@ -107,4 +107,11 @@ describe('BookListQueryDto', () => {
     expect(errors).toContain('page debe ser mayor o igual a 1');
     expect(errors).toContain("available debe ser 'true' o 'false'");
   });
+
+  it('rechaza page mayor a 1.000.000 (evita un offset fuera de rango en la BD)', async () => {
+    expect(await errorsFor(BookListQueryDto, { page: '1000000' })).toEqual([]);
+    expect(await errorsFor(BookListQueryDto, { page: '1e20' })).toContain(
+      'page no puede ser mayor a 1000000',
+    );
+  });
 });
