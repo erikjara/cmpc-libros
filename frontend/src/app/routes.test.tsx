@@ -92,7 +92,7 @@ describe('sesión expirada', () => {
     expect(navigate).toHaveBeenCalledTimes(1)
 
     // Al llegar a /login se libera la bandera: una nueva expiración vuelve a redirigir.
-    await user.type(screen.getByLabelText('Correo'), 'admin@cmpc.cl')
+    await user.type(await screen.findByLabelText('Correo'), 'admin@cmpc.cl')
     await user.type(screen.getByLabelText('Contraseña'), 'Admin123!')
     await user.click(screen.getByRole('button', { name: 'Ingresar' }))
     await screen.findByRole('heading', { name: 'Libros' })
