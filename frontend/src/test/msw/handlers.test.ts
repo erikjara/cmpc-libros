@@ -1,0 +1,118 @@
+import { describe, expect, it } from 'vitest'
+import type { BookInput } from '@/lib/api-types'
+import { httpClient } from '@/lib/http-client'
+import { db } from './db'
+import { buildBooks } from './fixtures'
+
+// Los handlers de MSW deben comportarse como el contrato del backend para que los tests del
+// frontend detecten requests que el servidor real rechazaría.
+const [book] = buildBooks()
+
+const validInput: BookInput = {
+  title: 'Rayuela',
+  authorName: 'Julio Cortázar',
+  publisherName: 'Editorial Sudamericana',
+  genreName: 'Novela',
+  price: 12990.5,
+  stock: 3,
+}
+
+async function statusOf(request: Promise<unknown>): Promise<number> {
+  try {
+    await request
+    return 200
+  } catch (error) {
+    return (error as { status: number }).status
+  }
+}
+
+describe('handlers de MSW: GET /books', () => {
+  it('rechaza parámetros de query no permitidos con 400', async () => {
+    await expect(httpClient.get('/books?page=1&foo=bar')).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('valida los filtros y trata los vacíos como ausentes', async () => {
+    expect(await statusOf(httpClient.get('/books?authorId=no-es-uuid'))).toBe(400)
+    expect(await statusOf(httpClient.get('/books?available=quizas'))).toBe(400)
+    expect(await statusOf(httpClient.get('/books?limit=101'))).toBe(400)
+    expect(await statusOf(httpClient.get('/books?page=0'))).toBe(400)
+    expect(await statusOf(httpClient.get('/books?sort=title:asc,title:desc'))).toBe(400)
+    const response = await httpClient.get('/books?search=%20%20&genreId=')
+    expect(response.data.meta.total).toBe(25)
+  })
+})
+
+describe('handlers de MSW: GET /books/export', () => {
+  it('devuelve un CSV con BOM, encabezados del contrato y los filtros aplicados', async () => {
+    const response = await httpClient.get<ArrayBuffer>('/books/export?search=cien&sort=title:asc', {
+      responseType: 'arraybuffer',
+    })
+    expect(response.headers['content-type']).toContain('text/csv')
+    expect(response.headers['content-disposition']).toMatch(/^attachment; filename="libros-\d{4}-\d{2}-\d{2}\.csv"$/)
+    const lines = new TextDecoder('utf-8', { ignoreBOM: true }).decode(response.data).split('\r\n')
+    expect(lines[0]).toBe('﻿ID,Título,Autor,Editorial,Género,Precio,Stock,Disponible,Creado')
+    expect(lines[1]).toBe(
+      `${book.id},Cien años de soledad,Gabriel García Márquez,Editorial Sudamericana,Novela,15990,5,Sí,${book.createdAt}`,
+    )
+    expect(lines).toHaveLength(2)
+  })
+
+  it('no acepta page ni limit', async () => {
+    expect(await statusOf(httpClient.get('/books/export?page=1'))).toBe(400)
+    expect(await statusOf(httpClient.get('/books/export?limit=10'))).toBe(400)
+  })
+})
+
+describe('handlers de MSW: /books/:id', () => {
+  it('responde 400 ante un uuid inválido', async () => {
+    await expect(httpClient.get('/books/123')).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('DELETE es un soft delete: el libro deja de listarse y de leerse, y se puede restaurar', async () => {
+    await httpClient.delete(`/books/${book.id}`)
+    expect(db.books.some((item) => item.id === book.id)).toBe(true)
+    const list = await httpClient.get('/books?limit=100')
+    expect(list.data.meta.total).toBe(24)
+    expect(await statusOf(httpClient.get(`/books/${book.id}`))).toBe(404)
+    expect(await statusOf(httpClient.delete(`/books/${book.id}`))).toBe(404)
+
+    const restored = await httpClient.post(`/books/${book.id}/restore`)
+    expect(restored.data.data.id).toBe(book.id)
+    expect((await httpClient.get(`/books/${book.id}`)).data.data.title).toBe(book.title)
+    // Restaurar un libro no eliminado responde 200 con el libro.
+    expect(await statusOf(httpClient.post(`/books/${book.id}/restore`))).toBe(200)
+    expect(await statusOf(httpClient.post('/books/40000000-0000-4000-8000-999999999999/restore'))).toBe(404)
+  })
+})
+
+describe('handlers de MSW: validación de BookInput', () => {
+  it('crea un libro válido', async () => {
+    const response = await httpClient.post('/books', validInput)
+    expect(response.status).toBe(201)
+    expect(response.data.data).toMatchObject({ title: 'Rayuela', price: 12990.5, stock: 3, available: true })
+  })
+
+  it.each([
+    ['título vacío', { title: '   ' }],
+    ['autor demasiado largo', { authorName: 'a'.repeat(121) }],
+    ['precio negativo', { price: -1 }],
+    ['precio con 3 decimales', { price: 1.234 }],
+    ['stock decimal', { stock: 1.5 }],
+    ['stock sobre el máximo', { stock: 1_000_001 }],
+    ['campo no permitido', { isbn: '123' }],
+  ])('rechaza %s con 400 y ApiErrorBody', async (_case, patch) => {
+    const error = await httpClient.post('/books', { ...validInput, ...patch }).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ status: 400, details: expect.arrayContaining([expect.any(String)]) })
+  })
+
+  it('exige todos los campos al crear', async () => {
+    const { stock: _stock, ...withoutStock } = validInput
+    expect(await statusOf(httpClient.post('/books', withoutStock))).toBe(400)
+  })
+
+  it('PATCH acepta un subconjunto pero exige al menos un campo', async () => {
+    expect(await statusOf(httpClient.patch(`/books/${book.id}`, { stock: 0 }))).toBe(200)
+    expect(await statusOf(httpClient.patch(`/books/${book.id}`, {}))).toBe(400)
+    expect(await statusOf(httpClient.patch(`/books/${book.id}`, { price: 'caro' }))).toBe(400)
+  })
+})

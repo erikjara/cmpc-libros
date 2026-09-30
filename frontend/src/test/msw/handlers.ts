@@ -1,7 +1,7 @@
 import { http, HttpResponse, type PathParams } from 'msw'
 import type { ApiErrorBody, Book, BookInput, CatalogItem } from '@/lib/api-types'
 import { ADMIN_PASSWORD, adminUser } from './fixtures'
-import { db, upsertCatalogItem } from './db'
+import { db, findActiveBook, upsertCatalogItem } from './db'
 
 const SORT_FIELDS = ['title', 'price', 'stock', 'createdAt', 'author', 'publisher', 'genre']
 const SORT_REGEX = new RegExp(
@@ -9,6 +9,12 @@ const SORT_REGEX = new RegExp(
 )
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// Enmienda §11.6: parámetros desconocidos → 400; /books/export no acepta page/limit.
+const FILTER_PARAMS = ['search', 'authorId', 'publisherId', 'genreId', 'available', 'sort']
+const LIST_PARAMS = [...FILTER_PARAMS, 'page', 'limit']
+const BOOK_INPUT_FIELDS = ['title', 'authorName', 'publisherName', 'genreName', 'price', 'stock'] as const
+const CSV_HEADER = 'ID,Título,Autor,Editorial,Género,Precio,Stock,Disponible,Creado'
 
 export function errorBody(statusCode: number, error: string, message: string | string[], path = '/api'): ApiErrorBody {
   return {
@@ -27,6 +33,113 @@ function unauthorized(path: string) {
 
 function notFound(path: string) {
   return HttpResponse.json(errorBody(404, 'Not Found', 'Recurso no encontrado', path), { status: 404 })
+}
+
+function badRequest(path: string, message: string | string[]) {
+  return HttpResponse.json(errorBody(400, 'Bad Request', message, path), { status: 400 })
+}
+
+// Los filtros vacíos o solo espacios se tratan como ausentes (enmienda §11.6).
+function queryParam(url: URL, key: string): string | undefined {
+  return url.searchParams.get(key)?.trim() || undefined
+}
+
+function isIntInRange(raw: string, min: number, max: number): boolean {
+  return /^\d+$/.test(raw) && Number(raw) >= min && Number(raw) <= max
+}
+
+function validateBookQuery(url: URL, allowed: readonly string[]): string[] {
+  const errors: string[] = []
+  for (const key of new Set(url.searchParams.keys())) {
+    if (!allowed.includes(key)) errors.push(`property ${key} should not exist`)
+  }
+  const search = queryParam(url, 'search')
+  if (search && search.length > 100) errors.push('search must be shorter than or equal to 100 characters')
+  for (const key of ['authorId', 'publisherId', 'genreId']) {
+    const value = queryParam(url, key)
+    if (value && !UUID_REGEX.test(value)) errors.push(`${key} must be a UUID`)
+  }
+  const available = queryParam(url, 'available')
+  if (available && available !== 'true' && available !== 'false') {
+    errors.push('available must be one of the following values: true, false')
+  }
+  const sort = queryParam(url, 'sort')
+  if (sort) {
+    const fields = sort.split(',').map((part) => part.split(':')[0])
+    if (!SORT_REGEX.test(sort) || new Set(fields).size !== fields.length) errors.push('Orden no válido')
+  }
+  const page = queryParam(url, 'page')
+  if (page && !isIntInRange(page, 1, Number.MAX_SAFE_INTEGER)) errors.push('page must not be less than 1')
+  const limit = queryParam(url, 'limit')
+  if (limit && !isIntInRange(limit, 1, 100)) errors.push('limit must be between 1 and 100')
+  return errors
+}
+
+function validateName(errors: string[], field: string, value: unknown, max: number): void {
+  if (typeof value !== 'string' || value.trim().length < 1 || value.trim().length > max) {
+    errors.push(`${field} must be a string between 1 and ${max} characters`)
+  }
+}
+
+// Validación básica de BookInput según el contrato; `partial` para PATCH (al menos un campo).
+function validateBookInput(body: unknown, partial: boolean): string[] {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return ['El cuerpo debe ser un objeto']
+  const input = body as Record<string, unknown>
+  const errors: string[] = []
+  for (const key of Object.keys(input)) {
+    if (!(BOOK_INPUT_FIELDS as readonly string[]).includes(key)) errors.push(`property ${key} should not exist`)
+  }
+  const present = BOOK_INPUT_FIELDS.filter((field) => input[field] !== undefined)
+  if (partial && present.length === 0) errors.push('Debe enviar al menos un campo')
+  if (!partial) {
+    for (const field of BOOK_INPUT_FIELDS) {
+      if (input[field] === undefined) errors.push(`${field} should not be empty`)
+    }
+  }
+  if (input.title !== undefined) validateName(errors, 'title', input.title, 200)
+  for (const field of ['authorName', 'publisherName', 'genreName']) {
+    if (input[field] !== undefined) validateName(errors, field, input[field], 120)
+  }
+  const { price, stock } = input
+  if (
+    price !== undefined &&
+    (typeof price !== 'number' ||
+      !Number.isFinite(price) ||
+      price < 0 ||
+      price > 99_999_999.99 ||
+      Math.abs(Math.round(price * 100) - price * 100) > 1e-6)
+  ) {
+    errors.push('price must be a number between 0 and 99999999.99 with at most 2 decimals')
+  }
+  if (stock !== undefined && (typeof stock !== 'number' || !Number.isInteger(stock) || stock < 0 || stock > 1_000_000)) {
+    errors.push('stock must be an integer between 0 and 1000000')
+  }
+  return errors
+}
+
+function csvCell(value: string): string {
+  // Protección contra inyección de fórmulas y escape RFC 4180.
+  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value
+  return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
+}
+
+function toCsv(books: Book[]): string {
+  const rows = books.map((book) =>
+    [
+      book.id,
+      book.title,
+      book.author.name,
+      book.publisher.name,
+      book.genre.name,
+      String(book.price),
+      String(book.stock),
+      book.available ? 'Sí' : 'No',
+      book.createdAt,
+    ]
+      .map(csvCell)
+      .join(','),
+  )
+  return `\uFEFF${[CSV_HEADER, ...rows].join('\r\n')}`
 }
 
 function sortValue(book: Book, field: string): string | number {
@@ -65,13 +178,14 @@ function applySort(books: Book[], sort: string): Book[] {
 }
 
 function filterBooks(url: URL): Book[] {
-  const search = url.searchParams.get('search')?.toLowerCase()
-  const authorId = url.searchParams.get('authorId')
-  const publisherId = url.searchParams.get('publisherId')
-  const genreId = url.searchParams.get('genreId')
-  const available = url.searchParams.get('available')
+  const search = queryParam(url, 'search')?.toLowerCase()
+  const authorId = queryParam(url, 'authorId')
+  const publisherId = queryParam(url, 'publisherId')
+  const genreId = queryParam(url, 'genreId')
+  const available = queryParam(url, 'available')
   return db.books.filter(
     (book) =>
+      !db.deletedBookIds.has(book.id) &&
       (!search ||
         book.title.toLowerCase().includes(search) ||
         book.author.name.toLowerCase().includes(search)) &&
@@ -151,14 +265,11 @@ export const handlers = [
   http.get('/api/books', ({ request }) => {
     if (!db.sessionUser) return unauthorized('/api/books')
     const url = new URL(request.url)
-    const sort = url.searchParams.get('sort') ?? 'createdAt:desc'
-    if (!SORT_REGEX.test(sort)) {
-      return HttpResponse.json(errorBody(400, 'Bad Request', 'Orden no válido', '/api/books'), {
-        status: 400,
-      })
-    }
-    const page = Number(url.searchParams.get('page') ?? 1)
-    const limit = Number(url.searchParams.get('limit') ?? 10)
+    const errors = validateBookQuery(url, LIST_PARAMS)
+    if (errors.length > 0) return badRequest('/api/books', errors)
+    const sort = queryParam(url, 'sort') ?? 'createdAt:desc'
+    const page = Number(queryParam(url, 'page') ?? 1)
+    const limit = Number(queryParam(url, 'limit') ?? 10)
     const sorted = applySort(filterBooks(url), sort)
     const total = sorted.length
     const totalPages = Math.ceil(total / limit)
@@ -166,56 +277,97 @@ export const handlers = [
     return HttpResponse.json({ data, meta: { page, limit, total, totalPages } })
   }),
 
+  // Debe ir antes de /api/books/:id para que "export" no se interprete como id.
+  http.get('/api/books/export', ({ request }) => {
+    if (!db.sessionUser) return unauthorized('/api/books/export')
+    const url = new URL(request.url)
+    const errors = validateBookQuery(url, FILTER_PARAMS)
+    if (errors.length > 0) return badRequest('/api/books/export', errors)
+    const books = applySort(filterBooks(url), queryParam(url, 'sort') ?? 'createdAt:desc')
+    const date = new Date().toISOString().slice(0, 10)
+    return new HttpResponse(toCsv(books), {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="libros-${date}.csv"`,
+      },
+    })
+  }),
+
   http.get<PathParams<'id'>>('/api/books/:id', ({ params }) => {
-    if (!db.sessionUser) return unauthorized(`/api/books/${params.id}`)
-    const book = db.books.find((item) => item.id === params.id)
-    if (!book) return notFound(`/api/books/${params.id}`)
+    const id = String(params.id)
+    const path = `/api/books/${id}`
+    if (!db.sessionUser) return unauthorized(path)
+    if (!UUID_REGEX.test(id)) return badRequest(path, 'Validation failed (uuid is expected)')
+    const book = findActiveBook(id)
+    if (!book) return notFound(path)
     return HttpResponse.json({ data: book })
   }),
 
   http.post('/api/books', async ({ request }) => {
     if (!db.sessionUser) return unauthorized('/api/books')
-    const input = (await request.json()) as BookInput
-    const book = buildBook(input)
+    const body: unknown = await request.json()
+    const errors = validateBookInput(body, false)
+    if (errors.length > 0) return badRequest('/api/books', errors)
+    const book = buildBook(body as BookInput)
     db.books.push(book)
     return HttpResponse.json({ data: book }, { status: 201 })
   }),
 
   http.patch<PathParams<'id'>>('/api/books/:id', async ({ params, request }) => {
-    if (!db.sessionUser) return unauthorized(`/api/books/${params.id}`)
-    const index = db.books.findIndex((item) => item.id === params.id)
-    if (index === -1) return notFound(`/api/books/${params.id}`)
-    const patch = (await request.json()) as Partial<BookInput>
+    const id = String(params.id)
+    const path = `/api/books/${id}`
+    if (!db.sessionUser) return unauthorized(path)
+    if (!UUID_REGEX.test(id)) return badRequest(path, 'Validation failed (uuid is expected)')
+    const index = db.books.findIndex((item) => item.id === id)
+    if (index === -1 || db.deletedBookIds.has(id)) return notFound(path)
+    const body: unknown = await request.json()
+    const errors = validateBookInput(body, true)
+    if (errors.length > 0) return badRequest(path, errors)
+    const patch = body as Partial<BookInput>
     const updated = buildBook({ ...toInput(db.books[index]), ...patch }, db.books[index])
     db.books[index] = updated
     return HttpResponse.json({ data: updated })
   }),
 
+  // Soft delete: el libro deja de listarse y de leerse, pero se puede restaurar.
   http.delete<PathParams<'id'>>('/api/books/:id', ({ params }) => {
-    if (!db.sessionUser) return unauthorized(`/api/books/${params.id}`)
-    const index = db.books.findIndex((item) => item.id === params.id)
-    if (index === -1) return notFound(`/api/books/${params.id}`)
-    db.books.splice(index, 1)
+    const id = String(params.id)
+    const path = `/api/books/${id}`
+    if (!db.sessionUser) return unauthorized(path)
+    if (!UUID_REGEX.test(id) || !findActiveBook(id)) return notFound(path)
+    db.deletedBookIds.add(id)
     return new HttpResponse(null, { status: 204 })
   }),
 
+  // Enmienda §11.7: restaurar un libro no eliminado responde 200 con el libro.
+  http.post<PathParams<'id'>>('/api/books/:id/restore', ({ params }) => {
+    const id = String(params.id)
+    const path = `/api/books/${id}/restore`
+    if (!db.sessionUser) return unauthorized(path)
+    const book = db.books.find((item) => item.id === id)
+    if (!book) return notFound(path)
+    db.deletedBookIds.delete(book.id)
+    return HttpResponse.json({ data: book })
+  }),
+
   http.post<PathParams<'id'>>('/api/books/:id/image', async ({ params, request }) => {
-    if (!db.sessionUser) return unauthorized(`/api/books/${params.id}/image`)
-    const book = db.books.find((item) => item.id === params.id)
-    if (!book) return notFound(`/api/books/${params.id}/image`)
+    const id = String(params.id)
+    if (!db.sessionUser) return unauthorized(`/api/books/${id}/image`)
+    const book = findActiveBook(id)
+    if (!book) return notFound(`/api/books/${id}/image`)
     // Se lee el multipart como texto: el File de jsdom no es compatible con request.formData()
     // de undici, así que se extrae el Content-Type de la parte "image" manualmente.
     const raw = await request.text()
     const part = /name="image"; filename="[^"]*"\r\nContent-Type: ([^\r\n]+)\r\n\r\n/.exec(raw)
     if (!part || !ALLOWED_IMAGE_TYPES.includes(part[1])) {
       return HttpResponse.json(
-        errorBody(400, 'Bad Request', 'Tipo de imagen no permitido', `/api/books/${params.id}/image`),
+        errorBody(400, 'Bad Request', 'Tipo de imagen no permitido', `/api/books/${id}/image`),
         { status: 400 },
       )
     }
     if (raw.length > MAX_IMAGE_BYTES + 1024) {
       return HttpResponse.json(
-        errorBody(413, 'Payload Too Large', 'La imagen supera 2 MB', `/api/books/${params.id}/image`),
+        errorBody(413, 'Payload Too Large', 'La imagen supera 2 MB', `/api/books/${id}/image`),
         { status: 413 },
       )
     }

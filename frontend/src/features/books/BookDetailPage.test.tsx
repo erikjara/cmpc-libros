@@ -60,7 +60,7 @@ describe('BookDetailPage', () => {
     await user.click(screen.getByRole('button', { name: 'Eliminar' }))
     expect(await screen.findByText('Libro eliminado')).toBeInTheDocument()
     expect(await screen.findByTestId('location')).toHaveTextContent('/books')
-    expect(db.books.some((book) => book.id === withImage.id)).toBe(false)
+    expect(db.deletedBookIds.has(withImage.id)).toBe(true)
   })
 
   it('tras eliminar no vuelve a pedir el libro ni muestra "Libro no encontrado"', async () => {
@@ -88,7 +88,7 @@ describe('BookDetailPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Eliminar' }))
     await user.click(await screen.findByRole('button', { name: 'Cancelar' }))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
-    expect(db.books.some((book) => book.id === withImage.id)).toBe(true)
+    expect(db.deletedBookIds.has(withImage.id)).toBe(false)
   })
 
   it('muestra un toast de error si la eliminación falla', async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { httpClient } from '@/lib/http-client'
 import { buildExportUrl, fetchBooks, toQueryString } from './books.api'
 
 describe('toQueryString', () => {
@@ -14,6 +15,13 @@ describe('buildExportUrl', () => {
     expect(buildExportUrl({ search: 'cien', available: 'true' })).toBe(
       '/api/books/export?search=cien&available=true',
     )
+  })
+
+  it('genera una URL que la API acepta (sin page ni limit)', async () => {
+    const url = buildExportUrl({ search: 'cien', available: 'true', sort: 'title:asc' })
+    const response = await httpClient.get(url.replace(/^\/api/, ''), { responseType: 'text' })
+    expect(response.status).toBe(200)
+    expect(response.headers['content-type']).toContain('text/csv')
   })
 
   it('no agrega "?" si no hay filtros', () => {
