@@ -9,16 +9,22 @@
     "node": ">=24"
   },
   "scripts": {
+    "prisma:generate": "prisma generate",
+    "prebuild": "prisma generate",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main.js",
+    "prelint": "prisma generate",
     "lint": "oxlint --type-aware src/",
+    "pretypecheck": "prisma generate",
     "typecheck": "tsc --noEmit",
+    "pretest": "prisma generate",
     "test": "vitest run",
     "test:watch": "vitest",
+    "pretest:cov": "prisma generate",
     "test:cov": "vitest run --coverage"
   },
   "dependencies": {
