@@ -1,0 +1,94 @@
+// CMPC-libros: modelo relacional (PostgreSQL 18)
+// Fuente de verdad: backend/prisma/schema.prisma. Visualizar en https://dbdiagram.io
+
+Project cmpc_libros {
+  database_type: 'PostgreSQL'
+  Note: '''
+    Inventario de libros con catálogo normalizado (autores, editoriales, géneros),
+    soft delete de libros y auditoría transaccional de operaciones.
+  '''
+}
+
+Enum audit_action {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  EXPORT
+  LOGIN
+}
+
+Table users {
+  id uuid [pk]
+  email text [not null, unique]
+  password_hash text [not null, note: 'Hash Argon2id']
+  name text [not null]
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null]
+
+  Note: 'Usuarios internos. Se crean con el seed; no hay registro público.'
+}
+
+Table authors {
+  id uuid [pk]
+  name text [not null, unique]
+  created_at timestamp [not null, default: `now()`]
+
+  indexes {
+    name [type: gin, name: 'authors_name_trgm_idx', note: 'gin_trgm_ops: búsqueda ILIKE']
+  }
+}
+
+Table publishers {
+  id uuid [pk]
+  name text [not null, unique]
+  created_at timestamp [not null, default: `now()`]
+}
+
+Table genres {
+  id uuid [pk]
+  name text [not null, unique]
+  created_at timestamp [not null, default: `now()`]
+}
+
+Table books {
+  id uuid [pk]
+  title text [not null]
+  author_id uuid [not null, ref: > authors.id]
+  publisher_id uuid [not null, ref: > publishers.id]
+  genre_id uuid [not null, ref: > genres.id]
+  price decimal(10,2) [not null, note: 'CLP']
+  stock integer [not null, default: 0, note: 'CHECK (stock >= 0); disponible = stock > 0']
+  image_key text [null, note: 'Nombre del archivo (UUID + extensión)']
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null]
+  deleted_at timestamp [null, note: 'Soft delete']
+
+  indexes {
+    author_id
+    publisher_id
+    genre_id
+    deleted_at
+    price
+    created_at
+    title [type: gin, name: 'books_title_trgm_idx', note: 'gin_trgm_ops: búsqueda ILIKE']
+  }
+}
+
+Table audit_logs {
+  id uuid [pk]
+  user_id uuid [null, ref: > users.id]
+  action audit_action [not null]
+  entity text [not null, note: 'Book | User']
+  entity_id text [null]
+  changes jsonb [null, note: '{ before, after } o metadatos de la exportación']
+  ip text [null]
+  user_agent text [null]
+  created_at timestamp [not null, default: `now()`]
+
+  indexes {
+    (entity, entity_id)
+    user_id
+    created_at
+  }
+}
