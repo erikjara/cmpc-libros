@@ -1,13 +1,14 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Controller, Get, Module } from '@nestjs/common';
+import { Controller, Get, Logger, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildHelmetOptions, configureApp } from './app.setup.js';
+import { DEMO_JWT_SECRETS } from './config/demo-secret.js';
 
 @Controller('ping')
 class PingController {
@@ -114,5 +115,49 @@ describe('configureApp', () => {
       'bearer',
     ]);
     expect(body.paths['/api/ping']).toBeDefined();
+  });
+});
+
+describe('configureApp con el secreto de ejemplo en producción', () => {
+  it('arranca y advierte que JWT_SECRET debe cambiarse', async () => {
+    const uploadsDir = await mkdtemp(join(tmpdir(), 'cmpc-setup-'));
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+
+    @Module({
+      imports: [
+        ConfigModule.forRoot({
+          ignoreEnvFile: true,
+          validate: () => ({
+            NODE_ENV: 'production',
+            JWT_SECRET: DEMO_JWT_SECRETS[1],
+            UPLOADS_DIR: uploadsDir,
+            CORS_ORIGIN: 'http://localhost:8080',
+            COOKIE_SECURE: false,
+          }),
+        }),
+      ],
+    })
+    class ProductionModule {}
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [ProductionModule],
+    }).compile();
+    const app = moduleRef.createNestApplication<NestExpressApplication>({
+      logger: false,
+    });
+    configureApp(app);
+    await app.init();
+
+    expect(
+      warn.mock.calls.some(([message]) =>
+        String(message).includes('JWT_SECRET'),
+      ),
+    ).toBe(true);
+
+    warn.mockRestore();
+    await app.close();
+    await rm(uploadsDir, { recursive: true, force: true });
   });
 });

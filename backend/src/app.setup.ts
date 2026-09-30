@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -9,6 +9,7 @@ import helmet, { type HelmetOptions } from 'helmet';
 import { SESSION_COOKIE } from './auth/auth.constants.js';
 import { UPLOADS_URL_PREFIX } from './books/book.mapper.js';
 import { validationExceptionFactory } from './common/validation/validation-exception.factory.js';
+import { warnIfDemoJwtSecret } from './config/demo-secret.js';
 import type { Env } from './config/env.schema.js';
 
 export const API_PREFIX = 'api';
@@ -47,6 +48,13 @@ export function setupSwagger(app: NestExpressApplication): void {
 /** Configuración HTTP compartida por main.ts y los tests e2e. */
 export function configureApp(app: NestExpressApplication): void {
   const config = app.get<ConfigService<Env, true>>(ConfigService);
+  warnIfDemoJwtSecret(
+    {
+      NODE_ENV: config.get('NODE_ENV', { infer: true }),
+      JWT_SECRET: config.get('JWT_SECRET', { infer: true }),
+    },
+    new Logger('Configuración'),
+  );
   const uploadsDir = resolve(config.get('UPLOADS_DIR', { infer: true }));
   mkdirSync(uploadsDir, { recursive: true });
 
