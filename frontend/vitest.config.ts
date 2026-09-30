@@ -10,6 +10,8 @@ export default mergeConfig(
       setupFiles: ['./src/test/setup.ts'],
       include: ['src/**/*.test.{ts,tsx}'],
       css: false,
+      // Margen para hosts o CI con carga alta: los flujos completos (guardar + imagen + navegar) superan 5 s.
+      testTimeout: 15_000,
       coverage: {
         provider: 'v8',
         include: ['src/**/*.{ts,tsx}'],
