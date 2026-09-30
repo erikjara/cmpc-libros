@@ -311,6 +311,67 @@ describe('BooksService', () => {
       expect(storage.delete).toHaveBeenCalledWith('new.jpg');
     });
 
+    it('vuelve a verificar el libro activo dentro de la transacción', async () => {
+      repository.findActiveById.mockResolvedValue(makeBook({ imageKey: null }));
+      storage.save.mockResolvedValue('new.jpg');
+      repository.setImageKey.mockResolvedValue(
+        makeBook({ imageKey: 'new.jpg' }),
+      );
+
+      await service.setImage(BOOK_ID, file, REQUEST_CONTEXT);
+
+      expect(repository.findActiveById).toHaveBeenCalledWith(BOOK_ID, tx);
+    });
+
+    it('si el libro se eliminó antes de la transacción responde 404, borra el archivo nuevo y no audita', async () => {
+      repository.findActiveById
+        .mockResolvedValueOnce(makeBook({ imageKey: 'old.jpg' }))
+        .mockResolvedValueOnce(null);
+      storage.save.mockResolvedValue('new.jpg');
+
+      await expect(
+        service.setImage(BOOK_ID, file, REQUEST_CONTEXT),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(repository.setImageKey).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+      expect(storage.delete).toHaveBeenCalledExactlyOnceWith('new.jpg');
+    });
+
+    it('audita y borra, tras el commit, la imagen vigente leída dentro de la transacción', async () => {
+      const order: string[] = [];
+      prisma.$transaction.mockImplementation((async (
+        fn: (client: typeof tx) => unknown,
+      ) => {
+        const result = await fn(tx);
+        order.push('commit');
+        return result;
+      }) as never);
+      repository.findActiveById
+        .mockResolvedValueOnce(makeBook({ imageKey: 'stale.jpg' }))
+        .mockResolvedValueOnce(makeBook({ imageKey: 'current.jpg' }));
+      storage.save.mockResolvedValue('new.jpg');
+      storage.delete.mockImplementation(async (key) => {
+        order.push(`delete:${key}`);
+      });
+      repository.setImageKey.mockResolvedValue(
+        makeBook({ imageKey: 'new.jpg' }),
+      );
+
+      await service.setImage(BOOK_ID, file, REQUEST_CONTEXT);
+
+      expect(audit.record).toHaveBeenCalledWith(
+        tx,
+        expect.objectContaining({
+          changes: {
+            before: { imageKey: 'current.jpg' },
+            after: { imageKey: 'new.jpg' },
+          },
+        }),
+      );
+      expect(order).toEqual(['commit', 'delete:current.jpg']);
+    });
+
     it('no falla si no puede borrar la imagen anterior', async () => {
       repository.findActiveById.mockResolvedValue(
         makeBook({ imageKey: 'old.jpg' }),

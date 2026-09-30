@@ -148,15 +148,20 @@ export class BooksService {
         'Formato de imagen no permitido: usa JPEG, PNG o WebP',
       );
     }
-    const current = await this.repository.findActiveById(id);
-    if (!current) {
+    // Chequeo previo para no escribir archivos de libros inexistentes.
+    if (!(await this.repository.findActiveById(id))) {
       throw new NotFoundException(BOOK_NOT_FOUND);
     }
 
     const key = await this.storage.save(file.buffer, extension);
-    let updated: BookDto;
+    let result: { book: BookDto; previousKey: string | null };
     try {
-      updated = await this.prisma.$transaction(async (tx) => {
+      result = await this.prisma.$transaction(async (tx) => {
+        // Se repite dentro de la transacción: el libro pudo eliminarse o cambiar de imagen.
+        const current = await this.repository.findActiveById(id, tx);
+        if (!current) {
+          throw new NotFoundException(BOOK_NOT_FOUND);
+        }
         const book = toBookDto(await this.repository.setImageKey(tx, id, key));
         await this.audit.record(tx, {
           action: 'UPDATE',
@@ -168,17 +173,18 @@ export class BooksService {
             after: { imageKey: key },
           },
         });
-        return book;
+        return { book, previousKey: current.imageKey };
       });
     } catch (error) {
       await this.deleteQuietly(key);
       throw error;
     }
 
-    if (current.imageKey) {
-      await this.deleteQuietly(current.imageKey);
+    // La imagen anterior se borra solo después del commit.
+    if (result.previousKey) {
+      await this.deleteQuietly(result.previousKey);
     }
-    return updated;
+    return result.book;
   }
 
   private async deleteQuietly(key: string): Promise<void> {
