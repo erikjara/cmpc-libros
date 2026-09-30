@@ -2,14 +2,16 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
+import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 import { BooksModule } from './books/books.module.js';
 import { CatalogModule } from './catalog/catalog.module.js';
-import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor.js';
 import { buildLoggerParams } from './common/logging/logger.options.js';
 import { validateEnv, type Env } from './config/env.schema.js';
+import { HealthModule } from './health/health.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 
 @Module({
@@ -25,9 +27,11 @@ import { PrismaModule } from './prisma/prisma.module.js';
         buildLoggerParams(config.get('NODE_ENV', { infer: true })),
     }),
     PrismaModule,
+    AuditModule,
     AuthModule,
     BooksModule,
     CatalogModule,
+    HealthModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

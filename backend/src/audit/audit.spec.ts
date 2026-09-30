@@ -9,6 +9,7 @@ import { PaginatedResult } from '../common/pagination/pagination.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { toAuditLogDto } from './audit-log.mapper.js';
+import { AuditLogsController } from './audit-logs.controller.js';
 import {
   AuditLogsRepository,
   type AuditLogWithUser,
@@ -160,5 +161,20 @@ describe('AuditLogsRepository', () => {
       take: 10,
     });
     expect(prisma.auditLog.count).toHaveBeenCalledWith({ where: {} });
+  });
+});
+
+describe('AuditLogsController', () => {
+  it('delega en AuditService.list', async () => {
+    const service = mock<AuditService>();
+    const expected = new PaginatedResult([], {
+      page: 1,
+      limit: 10,
+      total: 0,
+      totalPages: 0,
+    });
+    service.list.mockResolvedValue(expected);
+    const controller = new AuditLogsController(service);
+    await expect(controller.list(query())).resolves.toBe(expected);
   });
 });
