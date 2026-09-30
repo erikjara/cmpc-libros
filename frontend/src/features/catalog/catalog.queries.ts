@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query'
 import type { CatalogKind } from '@/lib/api-types'
 import { fetchCatalog } from './catalog.api'
 
@@ -7,11 +7,14 @@ export const catalogKeys = {
   list: (kind: CatalogKind, search: string) => ['catalog', kind, search.trim()] as const,
 }
 
-export function useCatalogOptions(kind: CatalogKind, search: string) {
-  return useQuery({
+export function catalogQueryOptions(kind: CatalogKind, search: string) {
+  return queryOptions({
     queryKey: catalogKeys.list(kind, search),
     queryFn: () => fetchCatalog(kind, search),
-    placeholderData: keepPreviousData,
     staleTime: 60_000,
   })
+}
+
+export function useCatalogOptions(kind: CatalogKind, search: string) {
+  return useQuery({ ...catalogQueryOptions(kind, search), placeholderData: keepPreviousData })
 }

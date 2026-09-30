@@ -84,6 +84,18 @@ describe('BookForm', () => {
     )
   })
 
+  it('envía el autor escrito aunque se salga del campo con Tab sin elegir una opción', async () => {
+    const { user, onSubmit } = renderForm({ defaultValues: { ...validValues, authorName: '' } })
+    const submit = screen.getByRole('button', { name: 'Crear libro' })
+    await user.type(screen.getByLabelText('Autor'), 'Roberto Bolaño')
+    await user.tab()
+    await waitFor(() => expect(submit).toBeEnabled())
+    await user.click(submit)
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ authorName: 'Roberto Bolaño' }), null),
+    )
+  })
+
   it('incluye la imagen seleccionada al enviar', async () => {
     const { user, onSubmit } = renderForm({ defaultValues: validValues })
     const file = new File([new Uint8Array(10)], 'portada.png', { type: 'image/png' })
