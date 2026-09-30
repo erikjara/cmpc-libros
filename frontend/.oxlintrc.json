@@ -4,6 +4,7 @@
   "ignorePatterns": ["src/components/ui/**", "dist/**", "coverage/**"],
   "rules": {
     "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "error",
     "react/only-export-components": ["warn", { "allowConstantExport": true }]
   }
 }
