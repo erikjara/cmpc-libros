@@ -37,6 +37,16 @@ describe('buildLoginPath / safeRedirectTarget', () => {
     expect(safeRedirectTarget('https://evil.com')).toBe('/books')
     expect(safeRedirectTarget(null)).toBe('/books')
   })
+
+  it('rechaza barras invertidas y caracteres de control', () => {
+    expect(safeRedirectTarget('/\\evil.com')).toBe('/books')
+    expect(safeRedirectTarget('/books\\..')).toBe('/books')
+    expect(safeRedirectTarget('/\t/evil.com')).toBe('/books')
+    expect(safeRedirectTarget('/books\n')).toBe('/books')
+    expect(safeRedirectTarget('/books\u0000')).toBe('/books')
+    expect(safeRedirectTarget('/books\u007f')).toBe('/books')
+    expect(safeRedirectTarget('/books?search=cien%20a%C3%B1os')).toBe('/books?search=cien%20a%C3%B1os')
+  })
 })
 
 describe('requireAuth', () => {

@@ -7,9 +7,16 @@ export function buildLoginPath(redirectTo: string): string {
   return `/login?${new URLSearchParams({ redirectTo }).toString()}`
 }
 
+// Barras invertidas (los navegadores las tratan como "/") y caracteres de control (se eliminan
+// al parsear la URL, p. ej. "/\t/evil.com" → "//evil.com") permitirían salir del sitio.
+// oxlint-disable-next-line no-control-regex -- se buscan justamente caracteres de control
+const UNSAFE_REDIRECT_CHARS = /[\\\u0000-\u001f\u007f]/
+
 // Solo se aceptan rutas internas para evitar redirecciones abiertas.
 export function safeRedirectTarget(value: string | null): string {
-  if (value && value.startsWith('/') && !value.startsWith('//')) return value
+  if (value && value.startsWith('/') && !value.startsWith('//') && !UNSAFE_REDIRECT_CHARS.test(value)) {
+    return value
+  }
   return '/books'
 }
 
