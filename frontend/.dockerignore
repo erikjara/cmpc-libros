@@ -1,0 +1,16 @@
+# Dependencias y artefactos locales: la imagen los genera desde cero
+node_modules
+dist
+coverage
+.vitest
+
+# Secretos locales
+.env
+.env.*
+!.env.example
+
+# Archivos que no aportan a la imagen
+*.log
+.DS_Store
+Dockerfile
+.dockerignore
