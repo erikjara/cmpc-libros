@@ -6,6 +6,8 @@ import { BookDetailPage } from '@/features/books/BookDetailPage'
 import { BookFormPage } from '@/features/books/BookFormPage'
 import { BooksListPage } from '@/features/books/BooksListPage'
 import { FullPageLoader } from '@/shared/FullPageLoader'
+import { NotFoundPage } from '@/shared/NotFoundPage'
+import { RouteErrorBoundary } from '@/shared/RouteErrorBoundary'
 import { AppLayout } from './AppLayout'
 
 export function createRoutes(queryClient: QueryClient): RouteObject[] {
@@ -14,19 +16,27 @@ export function createRoutes(queryClient: QueryClient): RouteObject[] {
       path: '/login',
       loader: createRedirectIfAuthenticatedLoader(queryClient),
       element: <LoginPage />,
+      errorElement: <RouteErrorBoundary />,
       hydrateFallbackElement: <FullPageLoader />,
     },
     {
       path: '/',
       loader: createRequireAuthLoader(queryClient),
       element: <AppLayout />,
+      errorElement: <RouteErrorBoundary />,
       hydrateFallbackElement: <FullPageLoader />,
       children: [
-        { index: true, loader: () => redirect('/books') },
-        { path: 'books', element: <BooksListPage /> },
-        { path: 'books/new', element: <BookFormPage /> },
-        { path: 'books/:id', element: <BookDetailPage /> },
-        { path: 'books/:id/edit', element: <BookFormPage /> },
+        {
+          errorElement: <RouteErrorBoundary />,
+          children: [
+            { index: true, loader: () => redirect('/books') },
+            { path: 'books', element: <BooksListPage /> },
+            { path: 'books/new', element: <BookFormPage /> },
+            { path: 'books/:id', element: <BookDetailPage /> },
+            { path: 'books/:id/edit', element: <BookFormPage /> },
+            { path: '*', element: <NotFoundPage /> },
+          ],
+        },
       ],
     },
   ]
