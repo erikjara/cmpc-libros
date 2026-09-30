@@ -3,13 +3,16 @@ import { resolve } from 'node:path';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet, { type HelmetOptions } from 'helmet';
+import { SESSION_COOKIE } from './auth/auth.constants.js';
 import { UPLOADS_URL_PREFIX } from './books/book.mapper.js';
 import { validationExceptionFactory } from './common/validation/validation-exception.factory.js';
 import type { Env } from './config/env.schema.js';
 
 export const API_PREFIX = 'api';
+export const SWAGGER_PATH = 'api/docs';
 
 /**
  * Sin HTTPS (COOKIE_SECURE=false) se omiten HSTS y upgrade-insecure-requests:
@@ -22,6 +25,23 @@ export function buildHelmetOptions(https: boolean): HelmetOptions {
       directives: { upgradeInsecureRequests: https ? [] : null },
     },
   };
+}
+
+export function setupSwagger(app: NestExpressApplication): void {
+  const config = new DocumentBuilder()
+    .setTitle('CMPC-libros API')
+    .setDescription(
+      'API de inventario de libros. Autenticación por cookie httpOnly `cmpc_session` (login) o header `Authorization: Bearer`.',
+    )
+    .setVersion('1.0.0')
+    .addCookieAuth(SESSION_COOKIE)
+    .addBearerAuth()
+    .build();
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup(SWAGGER_PATH, app, document, {
+    jsonDocumentUrl: `${SWAGGER_PATH}/openapi.json`,
+    swaggerOptions: { persistAuthorization: true, withCredentials: true },
+  });
 }
 
 /** Configuración HTTP compartida por main.ts y los tests e2e. */
@@ -55,4 +75,5 @@ export function configureApp(app: NestExpressApplication): void {
     }),
   );
   app.enableShutdownHooks();
+  setupSwagger(app);
 }

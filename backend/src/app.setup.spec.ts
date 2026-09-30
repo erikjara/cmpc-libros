@@ -102,4 +102,17 @@ describe('configureApp', () => {
       .expect(200);
     expect(response.headers['content-type']).toBe('image/png');
   });
+
+  it('publica Swagger UI y el documento OpenAPI con cookie y bearer', async () => {
+    await request(app.getHttpServer()).get('/api/docs').expect(200);
+    const { body } = await request(app.getHttpServer())
+      .get('/api/docs/openapi.json')
+      .expect(200);
+    expect(body.info.title).toBe('CMPC-libros API');
+    expect(Object.keys(body.components.securitySchemes)).toEqual([
+      'cookie',
+      'bearer',
+    ]);
+    expect(body.paths['/api/ping']).toBeDefined();
+  });
 });
