@@ -18,7 +18,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main.js",
     "prelint": "prisma generate",
-    "lint": "oxlint --type-aware src/",
+    "lint": "oxlint --type-aware src/ prisma/",
     "pretypecheck": "prisma generate",
     "typecheck": "tsc --noEmit",
     "pretest": "prisma generate",
