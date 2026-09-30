@@ -8,7 +8,7 @@ import {
 } from 'vitest-mock-extended';
 import type { AuditService } from '../audit/audit.service.js';
 import { PaginatedResult } from '../common/pagination/pagination.js';
-import type { Prisma } from '../generated/prisma/client.js';
+import { Prisma } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { StorageService } from '../storage/storage.service.js';
 import {
@@ -22,6 +22,19 @@ import { toBookDto } from './book.mapper.js';
 import type { BooksRepository } from './books.repository.js';
 import { BooksService } from './books.service.js';
 import type { BookListQueryDto } from './dto/book-list-query.dto.js';
+
+function uniqueViolation(modelName: string, table: string) {
+  return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+    code: 'P2002',
+    clientVersion: '7.10.0',
+    meta: {
+      modelName,
+      driverAdapterError: {
+        cause: { kind: 'UniqueConstraintViolation', table },
+      },
+    },
+  });
+}
 
 describe('BooksService', () => {
   let prisma: DeepMockProxy<PrismaService>;
@@ -125,6 +138,78 @@ describe('BooksService', () => {
       await expect(service.create(BOOK_INPUT, REQUEST_CONTEXT)).rejects.toThrow(
         'db caída',
       );
+    });
+  });
+
+  describe('carrera al crear autor, editorial o género por nombre', () => {
+    it.each([
+      ['Author', 'authors'],
+      ['Publisher', 'publishers'],
+      ['Genre', 'genres'],
+    ])(
+      'create reintenta una vez la transacción completa ante P2002 en %s',
+      async (model, table) => {
+        repository.create
+          .mockRejectedValueOnce(uniqueViolation(model, table))
+          .mockResolvedValueOnce(makeBook());
+
+        await expect(
+          service.create(BOOK_INPUT, REQUEST_CONTEXT),
+        ).resolves.toEqual(toBookDto(makeBook()));
+        expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+        expect(audit.record).toHaveBeenCalledOnce();
+      },
+    );
+
+    it('update reintenta una vez ante P2002 en un catálogo', async () => {
+      repository.findActiveById.mockResolvedValue(makeBook());
+      repository.update
+        .mockRejectedValueOnce(uniqueViolation('Author', 'authors'))
+        .mockResolvedValueOnce(makeBook({ stock: 9 }));
+
+      const result = await service.update(
+        BOOK_ID,
+        { authorName: 'Autor nuevo' },
+        REQUEST_CONTEXT,
+      );
+
+      expect(result.stock).toBe(9);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    });
+
+    it('reconoce la tabla aunque falte modelName', async () => {
+      const error = uniqueViolation('Genre', 'genres');
+      delete (error.meta as Record<string, unknown>).modelName;
+      repository.create
+        .mockRejectedValueOnce(error)
+        .mockResolvedValueOnce(makeBook());
+
+      await service.create(BOOK_INPUT, REQUEST_CONTEXT);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    });
+
+    it('no reintenta más de una vez', async () => {
+      const error = uniqueViolation('Author', 'authors');
+      repository.create.mockRejectedValue(error);
+
+      await expect(service.create(BOOK_INPUT, REQUEST_CONTEXT)).rejects.toBe(
+        error,
+      );
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    });
+
+    it('no reintenta un P2002 de otra tabla ni otros errores', async () => {
+      const other = uniqueViolation('User', 'users');
+      repository.create.mockRejectedValueOnce(other);
+      await expect(service.create(BOOK_INPUT, REQUEST_CONTEXT)).rejects.toBe(
+        other,
+      );
+
+      repository.create.mockRejectedValueOnce(new Error('db caída'));
+      await expect(service.create(BOOK_INPUT, REQUEST_CONTEXT)).rejects.toThrow(
+        'db caída',
+      );
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2);
     });
   });
 

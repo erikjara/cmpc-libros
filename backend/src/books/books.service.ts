@@ -22,6 +22,7 @@ import {
 import { buildBookQuery } from './book-query.js';
 import { toBookDto, type BookDto } from './book.mapper.js';
 import { BooksRepository, type BookInput } from './books.repository.js';
+import { isCatalogNameConflict } from './catalog-conflict.js';
 import type { BookListQueryDto } from './dto/book-list-query.dto.js';
 
 export const BOOK_NOT_FOUND = 'Libro no encontrado';
@@ -59,17 +60,19 @@ export class BooksService {
   }
 
   create(input: BookInput, context: RequestContext): Promise<BookDto> {
-    return this.prisma.$transaction(async (tx) => {
-      const book = toBookDto(await this.repository.create(tx, input));
-      await this.audit.record(tx, {
-        action: 'CREATE',
-        entity: 'Book',
-        entityId: book.id,
-        context,
-        changes: { after: book },
-      });
-      return book;
-    });
+    return this.retryOnCatalogRace(() =>
+      this.prisma.$transaction(async (tx) => {
+        const book = toBookDto(await this.repository.create(tx, input));
+        await this.audit.record(tx, {
+          action: 'CREATE',
+          entity: 'Book',
+          entityId: book.id,
+          context,
+          changes: { after: book },
+        });
+        return book;
+      }),
+    );
   }
 
   update(
@@ -82,21 +85,23 @@ export class BooksService {
         'Debes enviar al menos un campo para actualizar',
       );
     }
-    return this.prisma.$transaction(async (tx) => {
-      const current = await this.repository.findActiveById(id, tx);
-      if (!current) {
-        throw new NotFoundException(BOOK_NOT_FOUND);
-      }
-      const updated = toBookDto(await this.repository.update(tx, id, input));
-      await this.audit.record(tx, {
-        action: 'UPDATE',
-        entity: 'Book',
-        entityId: id,
-        context,
-        changes: { before: toBookDto(current), after: updated },
-      });
-      return updated;
-    });
+    return this.retryOnCatalogRace(() =>
+      this.prisma.$transaction(async (tx) => {
+        const current = await this.repository.findActiveById(id, tx);
+        if (!current) {
+          throw new NotFoundException(BOOK_NOT_FOUND);
+        }
+        const updated = toBookDto(await this.repository.update(tx, id, input));
+        await this.audit.record(tx, {
+          action: 'UPDATE',
+          entity: 'Book',
+          entityId: id,
+          context,
+          changes: { before: toBookDto(current), after: updated },
+        });
+        return updated;
+      }),
+    );
   }
 
   async remove(id: string, context: RequestContext): Promise<void> {
@@ -185,6 +190,22 @@ export class BooksService {
       await this.deleteQuietly(result.previousKey);
     }
     return result.book;
+  }
+
+  /**
+   * Si otra transacción creó a la vez el mismo autor, editorial o género, se repite la
+   * transacción completa una vez: en el segundo intento `connectOrCreate` lo encuentra.
+   */
+  private async retryOnCatalogRace<T>(run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (error) {
+      if (!isCatalogNameConflict(error)) {
+        throw error;
+      }
+      this.logger.debug('Nombre de catálogo creado en paralelo: se reintenta');
+      return run();
+    }
   }
 
   private async deleteQuietly(key: string): Promise<void> {

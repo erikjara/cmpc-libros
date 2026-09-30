@@ -255,6 +255,30 @@ describe('API de libros (e2e)', () => {
     ).resolves.toBe(0);
   });
 
+  it('creaciones simultáneas con el mismo autor nuevo no fallan por la carrera del upsert', async () => {
+    const responses = await Promise.all(
+      Array.from({ length: 6 }, (_, index) =>
+        api()
+          .post('/api/books')
+          .set('Cookie', cookie)
+          .send({
+            title: `Concurrente ${index}`,
+            authorName: 'Autor concurrente',
+            publisherName: 'Editorial concurrente',
+            genreName: 'Género concurrente',
+            price: 1000,
+            stock: 1,
+          }),
+      ),
+    );
+    expect(responses.map((response) => response.status)).toEqual(
+      Array(6).fill(201),
+    );
+    await expect(
+      ctx.prisma.author.count({ where: { name: 'Autor concurrente' } }),
+    ).resolves.toBe(1);
+  });
+
   describe('imagen', () => {
     it('sube y reemplaza la imagen; la anterior se elimina del disco', async () => {
       const book = await createBook();
