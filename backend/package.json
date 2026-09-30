@@ -18,14 +18,15 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main.js",
     "prelint": "prisma generate",
-    "lint": "oxlint --type-aware src/ prisma/",
+    "lint": "oxlint --type-aware src/ prisma/ test/",
     "pretypecheck": "prisma generate",
     "typecheck": "tsc --noEmit",
     "pretest": "prisma generate",
     "test": "vitest run",
     "test:watch": "vitest",
     "pretest:cov": "prisma generate",
-    "test:cov": "vitest run --coverage"
+    "test:cov": "vitest run --coverage",
+    "test:e2e": "vitest run --config ./vitest.config.e2e.ts"
   },
   "dependencies": {
     "@nestjs/common": "12.1.2",
