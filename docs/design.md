@@ -170,8 +170,6 @@ es-CL), registra `EXPORT` en auditoría.
 
 - `TransformInterceptor`: respuestas `{ data, meta }`; no envuelve `StreamableFile`.
 - `ETagInterceptor`: agrega `ETag` a las respuestas de un libro.
-- `TimeoutInterceptor` global: 503 si una request supera `REQUEST_TIMEOUT_MS` (excluye exportación
-  y subida de imágenes).
 - Logging HTTP con `nestjs-pino` (pino-http): logs JSON por request con `requestId`, método, ruta,
   status y duración. Se usa el logger automático de pino-http y no un interceptor, porque un
   interceptor no registra las respuestas que se resuelven antes de llegar al controller (401 del
@@ -223,13 +221,23 @@ src/
 │   ├── auth/     useSession (query /auth/me), loader requireAuth, LoginPage, logout
 │   ├── books/    books.api.ts, hooks, BooksListPage, BooksTable, BooksFilters,
 │   │             BookFormPage, BookForm (+ schema zod), ImagePicker, BookDetailPage
+│   ├── trash/    TrashPage (libros eliminados, restaurar)
+│   ├── audit/    AuditPage, summarizeChanges (resumen legible de cada operación)
 │   └── catalog/  hooks de autores/editoriales/géneros, CatalogCombobox
 └── shared/       useDebounce, ConfirmDialog, ErrorBoundary, EmptyState, NotFoundPage
 ```
 
-Rutas: `/login`, `/books`, `/books/new`, `/books/:id`, `/books/:id/edit`. Todas salvo login
-cuelgan de una ruta de layout protegida cuyo `loader` (`requireAuth`) valida la sesión con
-`/auth/me` antes de renderizar.
+Rutas: `/login`, `/books`, `/books/new`, `/books/:id`, `/books/:id/edit`, `/trash`, `/audit`.
+Todas salvo login cuelgan de una ruta de layout protegida cuyo `loader` (`requireAuth`) valida la
+sesión con `/auth/me` antes de renderizar. Las páginas secundarias se cargan de forma diferida
+(`lazy` de React Router) y el layout es responsive desde 360 px.
+
+### Papelera y auditoría
+
+- `/trash`: libros eliminados (`GET /api/books/trash`) con búsqueda, paginación y "Restaurar". El
+  aviso de eliminación ofrece además "Deshacer".
+- `/audit`: registro de `GET /api/audit-logs`, paginado y filtrable por entidad, con un resumen
+  legible de cada operación (campos modificados con su valor anterior y nuevo).
 
 ### Listado
 
@@ -279,7 +287,10 @@ mismo `tx`), controllers con services mockeados, `parseSort` y `buildBookQuery`,
 (cookie/Bearer), `BooksExportService`
 (escapado CSV, BOM) y `LocalDiskStorageService` (directorio temporal).
 Excluidos de cobertura: `main.ts`, `*.module.ts`, DTOs, cliente generado de Prisma.
-Tests e2e: ver Roadmap (sección 9).
+Integración (`npm run test:e2e`): suite contra PostgreSQL real en una base dedicada
+`cmpc_libros_test` (guard global, soft delete en todas las lecturas, rollback real, escape de la
+búsqueda, paginación estable, concurrencia optimista, imágenes, CSV y papelera). También corre
+en CI con un servicio PostgreSQL.
 
 **Frontend (Vitest + Testing Library + MSW):** `useDebounce` (fake timers), `useBookSearchParams`,
 hooks de queries/mutaciones, `httpClient` (401, `ApiError`), `requireAuth`, `LoginPage`, `BooksTable`
@@ -327,5 +338,8 @@ Evoluciones previstas para próximas versiones, con su diseño propuesto:
 | Export masivo asíncrono | Cola BullMQ + Redis, job que genera el archivo y notifica/descarga por URL firmada |
 | Varios autores por libro | Tabla puente `book_authors (book_id, author_id, position)` |
 | Cliente tipado | `openapi-typescript` generado desde el Swagger del backend |
-| Tests e2e | Testcontainers (backend) y Playwright (frontend) |
+| Tests e2e de interfaz | Playwright contra el stack de Docker Compose en CI |
+| Base de integración aislada | Testcontainers: PostgreSQL efímero por suite |
+| Revocación de sesiones | `token_version` en `users`, incluido en el JWT y verificado por la estrategia; el logout lo incrementa |
+| Gestión de catálogos | Renombrar o fusionar autores, editoriales y géneros; ocultar los que no tienen libros activos |
 | Prisma 8 | Migrar cuando alcance GA; el acceso a datos está aislado en repositorios, lo que acota el cambio |

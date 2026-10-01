@@ -159,7 +159,6 @@ arrancar: si falta una variable obligatoria o tiene un formato inválido, la API
 | `UPLOADS_DIR` | Directorio de imágenes de portada (solo desarrollo local; en Docker es el volumen `uploads`) | `./uploads` |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | Usuario administrador creado por el seed | `admin@cmpc.cl`, `Admin123!` |
 | `SEED_DEMO_DATA` | Carga ~60 libros de demostración si la base no tiene libros (`false` por defecto) | `true` |
-| `REQUEST_TIMEOUT_MS` | Tiempo máximo de una request antes de responder 503 (no aplica a exportación ni subida de imágenes) | `30000` |
 
 En Docker, `docker-compose.yml` entrega a la API solo las variables que usa y deriva `DATABASE_URL` de
 `POSTGRES_*`, así que cambiar las credenciales en un único lugar basta. En desarrollo local el host
@@ -349,10 +348,8 @@ Detalle completo:
   filas mientras alguien tiene el formulario abierto y usa la semántica HTTP estándar (412
   Precondition Failed). El `If-Match` es opcional para no romper a clientes simples; la interfaz
   siempre lo envía.
-- **Interceptores de respuesta.** `TransformInterceptor` envuelve las respuestas en `{ data, meta }`,
-  `ETagInterceptor` agrega el `ETag` de los libros y `TimeoutInterceptor` corta con 503 las
-  requests que exceden `REQUEST_TIMEOUT_MS` (excepto exportación y subida de imágenes, que son
-  largas por naturaleza).
+- **Interceptores de respuesta.** `TransformInterceptor` envuelve las respuestas en `{ data, meta }`
+  y `ETagInterceptor` agrega el `ETag` de los libros, que habilita la concurrencia optimista.
 - **Seed separado en datos esenciales y de demostración.** El usuario administrador se asegura en
   cada arranque; los libros de demostración solo se cargan con `SEED_DEMO_DATA=true` y si la base
   no tiene libros, de modo que un reinicio nunca recrea ni duplica datos editados.
@@ -383,7 +380,8 @@ Detalle completo:
 - **Content-Security-Policy estricta en la SPA** (`script-src 'self'`, sin `unsafe-eval`). Por eso
   zod se configura sin compilación JIT de validadores (`jitless`), que necesitaría `new Function`.
 - **Rate limit solo en el login** (5 intentos por minuto e IP, en memoria del proceso). Los
-  intentos fallidos se registran con email e IP. Suficiente para una instancia; con varias
+  intentos fallidos se registran con la IP y el email enmascarado (`a***@dominio`), sin
+  dejar datos personales completos en los logs. Suficiente para una instancia; con varias
   réplicas se necesita un store compartido (ver Roadmap).
 - **Un único proxy de confianza.** `trust proxy = 1` asume exactamente nginx delante del backend;
   la API no debe exponerse directamente, porque un `X-Forwarded-For` falsificado alteraría la IP
@@ -471,7 +469,7 @@ Exclusiones de cobertura y su motivo:
 
 ### Cobertura actual
 
-Resultado de `npm run test:cov` en la versión 1.0.0:
+Resultado de `npm run test:cov`:
 
 | Aplicación | Tests | Sentencias | Ramas | Funciones | Líneas |
 |---|---|---|---|---|---|
@@ -483,17 +481,21 @@ ejecutan aparte contra PostgreSQL.
 
 ## Rendimiento
 
-Mediciones hechas durante el desarrollo sobre PostgreSQL 18 con datos sintéticos:
+- **Índices parciales** (`WHERE deleted_at IS NULL`) para el listado: PostgreSQL recorre el índice
+  ya ordenado en lugar de leer la tabla y ordenar. Se puede comprobar con el stack levantado:
 
-| Consulta | Sin índice dedicado | Con índice parcial |
-|---|---|---|
-| Listado ordenado por título (`deleted_at IS NULL ORDER BY title LIMIT 10`), 200 000 libros | `Seq Scan` + `Sort` | `Index Scan` sobre `books_active_title_idx`, filas ya ordenadas |
-| Página de la papelera (`deleted_at IS NOT NULL ORDER BY deleted_at DESC`), 200 000 libros, 1 % eliminados | 6,2 ms | 0,1 ms (índice de 64 kB) |
-| Conteo de la papelera | 7,6 ms | 1,3 ms |
+  ```bash
+  docker compose exec -T db psql -U cmpc -d cmpc_libros -c \
+    "EXPLAIN SELECT id FROM books WHERE deleted_at IS NULL ORDER BY title LIMIT 10"
+  # → Index Scan using books_active_title_idx on books
+  ```
 
-En el frontend, la carga diferida por ruta redujo el chunk de entrada de 849 kB a 87 kB (React,
-Base UI y TanStack se cachean en chunks propios entre despliegues). La exportación CSV se genera
-en streaming por lotes, por lo que su memoria no crece con el inventario.
+  La papelera tiene su propio índice parcial (`deleted_at IS NOT NULL`, ordenado por fecha de
+  eliminación); con pocos libros eliminados PostgreSQL prefiere leer la tabla y lo usa a medida
+  que el volumen crece.
+- **Carga diferida por ruta** en el frontend: `npm run build` en `frontend/` muestra el chunk de
+  entrada (~87 kB) separado de React, Base UI y TanStack, y de cada página.
+- **Exportación CSV en streaming** por lotes: la memoria del servidor no crece con el inventario.
 
 ## Integración continua
 
