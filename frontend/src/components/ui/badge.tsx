@@ -11,8 +11,10 @@ const badgeVariants = cva(
         default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
         secondary:
           "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
+        // Fondo opaco para asegurar contraste ≥ 4,5:1 con texto pequeño (red-700 sobre red-50: 5,88:1;
+        // red-300 sobre red-950: 8,40:1) sin depender del fondo de la fila.
         destructive:
-          "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
+          "bg-red-50 text-red-700 focus-visible:ring-destructive/20 dark:bg-red-950 dark:text-red-300 dark:focus-visible:ring-destructive/40 [a]:hover:bg-red-100 dark:[a]:hover:bg-red-900",
         outline:
           "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost:

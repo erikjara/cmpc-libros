@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/combobox'
 import type { CatalogItem, CatalogKind } from '@/lib/api-types'
 import { useDebounce } from '@/shared/useDebounce'
+import { CATALOG_CLEAR_LABELS, CATALOG_TRIGGER_LABELS } from './catalog-labels'
 import { useCatalogOptions } from './catalog.queries'
 
 interface CatalogFilterComboboxProps {
@@ -53,7 +54,14 @@ export function CatalogFilterCombobox({ kind, id, value, onChange, placeholder }
       itemToStringLabel={(item) => item.name}
       isItemEqualToValue={(item, current) => item.id === current.id}
     >
-      <ComboboxInput id={id} placeholder={placeholder} showClear={Boolean(selected)} className="w-full" />
+      <ComboboxInput
+        id={id}
+        placeholder={placeholder}
+        showClear={Boolean(selected)}
+        className="w-full"
+        triggerLabel={CATALOG_TRIGGER_LABELS[kind]}
+        clearLabel={CATALOG_CLEAR_LABELS[kind]}
+      />
       <ComboboxContent>
         <ComboboxEmpty>Sin resultados</ComboboxEmpty>
         <ComboboxList>

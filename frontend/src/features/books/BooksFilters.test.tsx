@@ -61,6 +61,16 @@ describe('BooksFilters', () => {
     expect(screen.getByLabelText('Autor')).toHaveValue('')
   })
 
+  it('los botones que despliegan autores y editoriales tienen nombre accesible', async () => {
+    const { user, params } = renderFilters()
+    expect(screen.getByRole('button', { name: 'Mostrar editoriales' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Mostrar autores' }))
+    await user.click(await screen.findByRole('option', { name: authors[1].name }))
+    expect(params().get('authorId')).toBe(authors[1].id)
+    await user.click(screen.getByRole('button', { name: 'Quitar autor' }))
+    expect(params().get('authorId')).toBeNull()
+  })
+
   it('muestra el nombre de la editorial filtrada al cargar desde la URL', async () => {
     renderFilters(`/books?publisherId=${publishers[1].id}`)
     expect(await screen.findByDisplayValue(publishers[1].name)).toBeInTheDocument()

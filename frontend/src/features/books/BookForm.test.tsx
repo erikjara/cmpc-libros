@@ -28,6 +28,14 @@ describe('BookForm', () => {
     expect(screen.getByRole('button', { name: 'Crear libro' })).toBeDisabled()
   })
 
+  it('los botones que despliegan autor, editorial y género tienen nombre accesible', async () => {
+    const { user } = renderForm()
+    expect(screen.getByRole('button', { name: 'Mostrar autores' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Mostrar editoriales' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Mostrar géneros' }))
+    expect(await screen.findByRole('option', { name: 'Poesía' })).toBeInTheDocument()
+  })
+
   it('muestra un ejemplo del formato de precio asociado al campo', () => {
     renderForm()
     expect(screen.getByLabelText('Precio (CLP)')).toHaveAccessibleDescription('Ej.: 15.990')
