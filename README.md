@@ -446,12 +446,15 @@ Exclusiones de cobertura y su motivo:
 
 ### Cobertura actual
 
-Resultado de `npm run test:cov` en la versión 1.0.0 (2026-10-01):
+Resultado de `npm run test:cov` en la versión 1.0.0:
 
-| Aplicación | Sentencias | Ramas | Funciones | Líneas |
-|---|---|---|---|---|
-| Backend | 99,20 % | 92,36 % | 98,72 % | 99,19 % |
-| Frontend | 95,97 % | 92,97 % | 96,03 % | 96,81 % |
+| Aplicación | Tests | Sentencias | Ramas | Funciones | Líneas |
+|---|---|---|---|---|---|
+| Backend | 281 unitarios + 32 de integración | 99,29 % | 93,49 % | 98,87 % | 99,28 % |
+| Frontend | 192 | 95,97 % | 93,36 % | 95,63 % | 96,94 % |
+
+La cobertura se mide sobre los tests unitarios; los de integración (`npm run test:e2e`) se
+ejecutan aparte contra PostgreSQL.
 
 ## Integración continua
 
