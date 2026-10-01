@@ -25,10 +25,16 @@ import {
 } from '../storage/storage.service.js';
 import { hasEffectiveChanges } from './book-changes.js';
 import { buildBookQuery } from './book-query.js';
-import { toBookDto, type BookDto } from './book.mapper.js';
+import {
+  toBookDto,
+  toTrashedBookDto,
+  type BookDto,
+  type TrashedBookDto,
+} from './book.mapper.js';
 import { BooksRepository, type BookInput } from './books.repository.js';
 import { isCatalogNameConflict } from './catalog-conflict.js';
 import type { BookListQueryDto } from './dto/book-list-query.dto.js';
+import type { TrashQueryDto } from './dto/trash-query.dto.js';
 
 export const BOOK_NOT_FOUND = 'Libro no encontrado';
 export const BOOK_MODIFIED =
@@ -64,6 +70,19 @@ export class BooksService {
     });
     return new PaginatedResult(
       books.map(toBookDto),
+      buildPaginationMeta(query.page, query.limit, total),
+    );
+  }
+
+  async listTrash(
+    query: TrashQueryDto,
+  ): Promise<PaginatedResult<TrashedBookDto>> {
+    const [books, total] = await this.repository.findTrashPage({
+      search: query.search,
+      ...toSkipTake(query.page, query.limit),
+    });
+    return new PaginatedResult(
+      books.map(toTrashedBookDto),
       buildPaginationMeta(query.page, query.limit, total),
     );
   }

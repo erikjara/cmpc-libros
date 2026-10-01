@@ -1,5 +1,8 @@
 import type { CatalogItem } from '../common/types/catalog-item.js';
-import type { BookWithRelations } from './books.repository.js';
+import type {
+  BookWithRelations,
+  TrashedBookWithRelations,
+} from './books.repository.js';
 
 export interface BookDto {
   id: string;
@@ -13,6 +16,10 @@ export interface BookDto {
   imageUrl: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TrashedBookDto extends BookDto {
+  deletedAt: string;
 }
 
 export const UPLOADS_URL_PREFIX = '/api/uploads';
@@ -31,4 +38,10 @@ export function toBookDto(book: BookWithRelations): BookDto {
     createdAt: book.createdAt.toISOString(),
     updatedAt: book.updatedAt.toISOString(),
   };
+}
+
+export function toTrashedBookDto(
+  book: TrashedBookWithRelations,
+): TrashedBookDto {
+  return { ...toBookDto(book), deletedAt: book.deletedAt.toISOString() };
 }
