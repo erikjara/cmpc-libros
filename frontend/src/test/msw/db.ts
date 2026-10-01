@@ -1,32 +1,35 @@
-import type { Book, CatalogItem, User } from '@/lib/api-types'
-import { adminUser, authors, buildBooks, genres, publishers } from './fixtures'
+import type { AuditLog, Book, CatalogItem, User } from '@/lib/api-types'
+import { adminUser, authors, buildAuditLogs, buildBooks, genres, publishers } from './fixtures'
 
 interface Db {
   sessionUser: User | null
   books: Book[]
-  /** Soft delete: los libros eliminados siguen en `books` pero no se listan ni se leen. */
-  deletedBookIds: Set<string>
+  /** Soft delete: id → fecha de eliminación. Siguen en `books` pero no se listan ni se leen. */
+  deletedBookIds: Map<string, string>
   authors: CatalogItem[]
   publishers: CatalogItem[]
   genres: CatalogItem[]
+  auditLogs: AuditLog[]
 }
 
 export const db: Db = {
   sessionUser: adminUser,
   books: buildBooks(),
-  deletedBookIds: new Set(),
+  deletedBookIds: new Map(),
   authors: [...authors],
   publishers: [...publishers],
   genres: [...genres],
+  auditLogs: buildAuditLogs(),
 }
 
 export function resetDb(): void {
   db.sessionUser = adminUser
   db.books = buildBooks()
-  db.deletedBookIds = new Set()
+  db.deletedBookIds = new Map()
   db.authors = [...authors]
   db.publishers = [...publishers]
   db.genres = [...genres]
+  db.auditLogs = buildAuditLogs()
 }
 
 export function upsertCatalogItem(list: CatalogItem[], rawName: string): CatalogItem {

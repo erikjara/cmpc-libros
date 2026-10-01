@@ -167,3 +167,68 @@ describe('handlers de MSW: bloqueo optimista', () => {
     expect(response.headers.etag).toBe(etagOf(book.updatedAt))
   })
 })
+
+describe('handlers de MSW: GET /books/trash', () => {
+  const books = buildBooks()
+
+  it('lista solo los eliminados, del más reciente al más antiguo, con deletedAt', async () => {
+    db.deletedBookIds.set(books[0].id, '2026-09-01T10:00:00.000Z')
+    db.deletedBookIds.set(books[1].id, '2026-09-02T10:00:00.000Z')
+    const response = await httpClient.get('/books/trash')
+    expect(response.data.meta).toEqual({ page: 1, limit: 10, total: 2, totalPages: 1 })
+    expect(response.data.data.map((item: { id: string }) => item.id)).toEqual([books[1].id, books[0].id])
+    expect(response.data.data[0].deletedAt).toBe('2026-09-02T10:00:00.000Z')
+  })
+
+  it('busca por título o autor y pagina', async () => {
+    for (const [index, item] of books.entries()) {
+      db.deletedBookIds.set(item.id, new Date(Date.UTC(2026, 8, 1, 0, index)).toISOString())
+    }
+    const page = await httpClient.get('/books/trash?page=3&limit=10')
+    expect(page.data.meta).toEqual({ page: 3, limit: 10, total: 25, totalPages: 3 })
+    expect(page.data.data).toHaveLength(5)
+    const search = await httpClient.get('/books/trash?search=allende')
+    expect(search.data.data.map((item: { title: string }) => item.title)).toContain('La casa de los espíritus')
+  })
+
+  it('valida el query como la API', async () => {
+    expect(await statusOf(httpClient.get('/books/trash?sort=title:asc'))).toBe(400)
+    expect(await statusOf(httpClient.get('/books/trash?page=1000001'))).toBe(400)
+    expect(await statusOf(httpClient.get('/books/trash?limit=0'))).toBe(400)
+    expect(await statusOf(httpClient.get(`/books/trash?search=${'a'.repeat(101)}`))).toBe(400)
+    expect(await statusOf(httpClient.get('/books/trash?search=%20'))).toBe(200)
+  })
+
+  it('DELETE registra la fecha de eliminación y restore la quita', async () => {
+    await httpClient.delete(`/books/${books[2].id}`)
+    const trash = await httpClient.get('/books/trash')
+    expect(trash.data.data[0]).toMatchObject({ id: books[2].id, deletedAt: expect.any(String) })
+    await httpClient.post(`/books/${books[2].id}/restore`)
+    expect((await httpClient.get('/books/trash')).data.meta.total).toBe(0)
+  })
+})
+
+describe('handlers de MSW: GET /audit-logs', () => {
+  it('pagina los registros ordenados por fecha descendente', async () => {
+    const response = await httpClient.get('/audit-logs?limit=5')
+    const logs = response.data.data as { createdAt: string }[]
+    expect(response.data.meta).toMatchObject({ page: 1, limit: 5 })
+    expect(response.data.meta.total).toBeGreaterThan(5)
+    expect(logs.map((log) => log.createdAt)).toEqual([...logs.map((log) => log.createdAt)].sort().reverse())
+  })
+
+  it('filtra por entidad y por entityId', async () => {
+    const users = await httpClient.get('/audit-logs?entity=User&limit=100')
+    expect(users.data.data.every((log: { entity: string }) => log.entity === 'User')).toBe(true)
+    expect(users.data.meta.total).toBeGreaterThan(0)
+    const [first] = (await httpClient.get('/audit-logs?entity=Book')).data.data
+    const byId = await httpClient.get(`/audit-logs?entityId=${first.entityId}&limit=100`)
+    expect(byId.data.data.every((log: { entityId: string }) => log.entityId === first.entityId)).toBe(true)
+  })
+
+  it('valida el query como la API', async () => {
+    expect(await statusOf(httpClient.get('/audit-logs?entity=Author'))).toBe(400)
+    expect(await statusOf(httpClient.get('/audit-logs?action=CREATE'))).toBe(400)
+    expect(await statusOf(httpClient.get('/audit-logs?limit=101'))).toBe(400)
+  })
+})

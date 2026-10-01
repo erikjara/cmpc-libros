@@ -50,6 +50,40 @@ export interface Book {
   updatedAt: string
 }
 
+/** Libro eliminado (soft delete) tal como lo devuelve la papelera. */
+export interface TrashedBook extends Book {
+  deletedAt: string
+}
+
+export interface TrashListQuery {
+  page?: number
+  limit?: number
+  search?: string
+}
+
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE' | 'EXPORT' | 'LOGIN'
+
+export type AuditEntity = 'Book' | 'User'
+
+export interface AuditLog {
+  id: string
+  action: AuditAction
+  entity: string
+  entityId: string | null
+  user: User | null
+  /** `{ before?, after? }` o metadatos (p. ej. `{ filters }` en una exportación). */
+  changes: unknown
+  ip: string | null
+  createdAt: string
+}
+
+export interface AuditLogQuery {
+  page?: number
+  limit?: number
+  entity?: AuditEntity
+  entityId?: string
+}
+
 export type SortField =
   | 'title'
   | 'price'
