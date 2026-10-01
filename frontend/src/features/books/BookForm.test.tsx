@@ -2,7 +2,7 @@ import { screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { renderWithProviders } from '@/test/render'
 import { BookForm } from './BookForm'
-import type { BookFormInput } from './book-form.schema'
+import { PRICE_FORMAT_MESSAGE, type BookFormInput } from './book-form.schema'
 
 const validValues: BookFormInput = {
   title: 'Cien años de soledad',
@@ -28,6 +28,18 @@ describe('BookForm', () => {
     expect(screen.getByRole('button', { name: 'Crear libro' })).toBeDisabled()
   })
 
+  it('muestra un ejemplo del formato de precio asociado al campo', () => {
+    renderForm()
+    expect(screen.getByLabelText('Precio (CLP)')).toHaveAccessibleDescription('Ej.: 15.990')
+  })
+
+  it('acepta el punto como separador de miles y la coma decimal', async () => {
+    const { user, onSubmit } = renderForm({ defaultValues: { ...validValues, price: '' } })
+    await user.type(screen.getByLabelText('Precio (CLP)'), '15.990,5')
+    await user.click(screen.getByRole('button', { name: 'Crear libro' }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ price: 15990.5 }), null))
+  })
+
   it('valida de forma reactiva el título, el precio y el stock', async () => {
     const { user } = renderForm()
     await user.type(screen.getByLabelText('Título'), 'a')
@@ -35,7 +47,7 @@ describe('BookForm', () => {
     expect(await screen.findByText('Ingresa el título')).toBeInTheDocument()
 
     await user.type(screen.getByLabelText('Precio (CLP)'), '12,999')
-    expect(await screen.findByText('Ingresa un número mayor o igual a 0, con hasta 2 decimales')).toBeInTheDocument()
+    expect(await screen.findByText(PRICE_FORMAT_MESSAGE)).toBeInTheDocument()
     await user.clear(screen.getByLabelText('Precio (CLP)'))
     await user.type(screen.getByLabelText('Precio (CLP)'), '100000000')
     expect(await screen.findByText('El precio máximo es 99.999.999,99')).toBeInTheDocument()
