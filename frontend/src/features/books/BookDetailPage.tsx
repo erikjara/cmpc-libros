@@ -1,4 +1,5 @@
 import { ArrowLeftIcon, BookIcon, PencilIcon, Trash2Icon } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
@@ -11,11 +12,15 @@ import { ConfirmDialog } from '@/shared/ConfirmDialog'
 import { NotFoundPage } from '@/shared/NotFoundPage'
 import { QueryError } from '@/shared/QueryError'
 import { AvailabilityBadge } from './AvailabilityBadge'
-import { useBookQuery, useDeleteBook } from './books.queries'
+import { restoreBookAndRefresh, useBookQuery, useDeleteBook } from './books.queries'
+
+// Más tiempo que el toast por defecto para alcanzar a pulsar "Deshacer".
+const UNDO_TOAST_DURATION_MS = 8000
 
 export function BookDetailPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const bookQuery = useBookQuery(id)
   const deleteMutation = useDeleteBook()
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -44,11 +49,22 @@ export function BookDetailPage() {
 
   const book = bookQuery.data
 
+  // La página ya se desmontó cuando se pulsa "Deshacer": no se usan callbacks de mutaciones del componente.
+  const undoDelete = (id: string) => {
+    restoreBookAndRefresh(queryClient, id).then(
+      () => toast.success('Libro restaurado'),
+      (error: unknown) => toast.error(getErrorMessage(error)),
+    )
+  }
+
   const handleDelete = () => {
     deleteMutation.mutate(book.id, {
       onSuccess: async () => {
         setConfirmOpen(false)
-        toast.success('Libro eliminado')
+        toast.success('Libro eliminado', {
+          duration: UNDO_TOAST_DURATION_MS,
+          action: { label: 'Deshacer', onClick: () => undoDelete(book.id) },
+        })
         await navigate('/books', { replace: true })
       },
       onError: (error) => {
