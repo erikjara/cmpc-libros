@@ -426,6 +426,15 @@ export const handlers = [
     if (!db.sessionUser) return unauthorized(`/api/books/${id}/image`)
     const book = findActiveBook(id)
     if (!book) return notFound(`/api/books/${id}/image`)
+    // Igual que el PATCH: If-Match opcional; si no coincide, 412 sin cambiar la portada.
+    const ifMatch = request.headers.get('If-Match')
+    db.bookImageUploads.push({ id, ifMatch })
+    if (ifMatch !== null && ifMatch !== `"${book.updatedAt}"`) {
+      return HttpResponse.json(
+        errorBody(412, 'Precondition Failed', STALE_BOOK_MESSAGE, `/api/books/${id}/image`),
+        { status: 412 },
+      )
+    }
     // Se lee el multipart como texto: el File de jsdom no es compatible con request.formData()
     // de undici, así que se extrae el Content-Type de la parte "image" manualmente.
     const raw = await request.text()
@@ -443,7 +452,7 @@ export const handlers = [
       )
     }
     book.imageUrl = `/api/uploads/${book.id}.webp`
-    book.updatedAt = new Date().toISOString()
+    book.updatedAt = new Date(Math.max(Date.now(), Date.parse(book.updatedAt) + 1)).toISOString()
     return bookResponse(book)
   }),
 
