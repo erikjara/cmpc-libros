@@ -8,7 +8,6 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 import { BooksModule } from './books/books.module.js';
 import { CatalogModule } from './catalog/catalog.module.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
-import { TimeoutInterceptor } from './common/interceptors/timeout.interceptor.js';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor.js';
 import { buildLoggerParams } from './common/logging/logger.options.js';
 import { validateEnv, type Env } from './config/env.schema.js';
@@ -36,7 +35,6 @@ import { PrismaModule } from './prisma/prisma.module.js';
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
-    { provide: APP_INTERCEPTOR, useClass: TimeoutInterceptor },
     { provide: APP_INTERCEPTOR, useClass: TransformInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],
