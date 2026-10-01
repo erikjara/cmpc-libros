@@ -111,17 +111,18 @@ arrancar: si falta una variable obligatoria o tiene un formato inválido, la API
 |---|---|---|
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Credenciales y base de datos del servicio `db` | `cmpc`, `cmpc`, `cmpc_libros` |
 | `NODE_ENV` | `development`, `production` o `test` | `production` |
-| `PORT` | Puerto HTTP de la API | `3000` |
-| `DATABASE_URL` | Conexión a PostgreSQL | `postgresql://cmpc:cmpc@db:5432/cmpc_libros?schema=public` |
+| `PORT` | Puerto HTTP de la API (solo desarrollo local; en Docker es `3000`) | `3000` |
+| `DATABASE_URL` | Conexión a PostgreSQL (solo desarrollo local; en Docker la construye `docker-compose.yml` desde `POSTGRES_*`) | `postgresql://cmpc:cmpc@localhost:5432/cmpc_libros?schema=public` |
 | `JWT_SECRET` | Firma de los JWT; mínimo 32 caracteres | valor de demo; generar uno con `openssl rand -base64 48` |
 | `JWT_EXPIRES_IN` | Duración de la sesión | `8h` |
 | `COOKIE_SECURE` | Marca la cookie de sesión como `Secure`; `true` cuando se sirve por HTTPS | `false` |
 | `CORS_ORIGIN` | Origen permitido para peticiones con credenciales | `http://localhost:8080` |
-| `UPLOADS_DIR` | Directorio de imágenes de portada | `/app/uploads` (volumen `uploads`) |
+| `UPLOADS_DIR` | Directorio de imágenes de portada (solo desarrollo local; en Docker es el volumen `uploads`) | `./uploads` |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | Usuario administrador creado por el seed | `admin@cmpc.cl`, `Admin123!` |
 
-`DATABASE_URL` debe coincidir con las credenciales `POSTGRES_*`. En desarrollo local el host es
-`localhost` y `CORS_ORIGIN` es `http://localhost:5173`.
+En Docker, `docker-compose.yml` entrega a la API solo las variables que usa y deriva `DATABASE_URL` de
+`POSTGRES_*`, así que cambiar las credenciales en un único lugar basta. En desarrollo local el host
+de la base es `localhost` y `CORS_ORIGIN` es `http://localhost:5173`.
 
 ### Checklist para producción
 
