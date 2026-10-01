@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { CatalogKind } from '../catalog/catalog.repository.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { DbClient } from '../prisma/prisma.types.js';
@@ -52,8 +53,56 @@ export interface BookBatchQuery {
   cursor?: string;
 }
 
-function connectOrCreateByName(name: string) {
-  return { connectOrCreate: { where: { name }, create: { name } } };
+/**
+ * Id del autor, editorial o género cuyo nombre coincide sin distinguir mayúsculas. Usa
+ * `lower(name) =` (y no ILIKE) para que `%` y `_` sean literales y la consulta use el
+ * índice único `<tabla>_name_lower_key`.
+ */
+async function findCatalogIdByName(
+  db: DbClient,
+  kind: CatalogKind,
+  name: string,
+): Promise<string | null> {
+  let rows: { id: string }[];
+  switch (kind) {
+    case 'author':
+      rows = await db.$queryRaw<{ id: string }[]>`
+        SELECT id FROM authors WHERE lower(name) = lower(${name}) LIMIT 1`;
+      break;
+    case 'publisher':
+      rows = await db.$queryRaw<{ id: string }[]>`
+        SELECT id FROM publishers WHERE lower(name) = lower(${name}) LIMIT 1`;
+      break;
+    case 'genre':
+      rows = await db.$queryRaw<{ id: string }[]>`
+        SELECT id FROM genres WHERE lower(name) = lower(${name}) LIMIT 1`;
+      break;
+  }
+  return rows[0]?.id ?? null;
+}
+
+/**
+ * Conecta con el registro existente aunque difiera en mayúsculas (conserva el nombre tal
+ * como está guardado) o lo crea. Si otra transacción crea a la vez el mismo nombre, el
+ * índice único sobre lower(name) hace fallar el INSERT con P2002 y el service reintenta.
+ */
+async function connectOrCreateByName(
+  db: DbClient,
+  kind: CatalogKind,
+  name: string,
+): Promise<{ connect: { id: string } }> {
+  const existing = await findCatalogIdByName(db, kind, name);
+  if (existing) {
+    return { connect: { id: existing } };
+  }
+  const args = { data: { name }, select: { id: true } };
+  const { id } =
+    kind === 'author'
+      ? await db.author.create(args)
+      : kind === 'publisher'
+        ? await db.publisher.create(args)
+        : await db.genre.create(args);
+  return { connect: { id } };
 }
 
 function toDecimal(price: number): Prisma.Decimal {
@@ -121,15 +170,23 @@ export class BooksRepository {
     return db.book.findUnique({ where: { id }, include: BOOK_INCLUDE });
   }
 
-  create(db: DbClient, input: BookInput): Promise<BookWithRelations> {
+  /** Las consultas van en secuencia: dentro de una transacción comparten conexión. */
+  async create(db: DbClient, input: BookInput): Promise<BookWithRelations> {
+    const author = await connectOrCreateByName(db, 'author', input.authorName);
+    const publisher = await connectOrCreateByName(
+      db,
+      'publisher',
+      input.publisherName,
+    );
+    const genre = await connectOrCreateByName(db, 'genre', input.genreName);
     return db.book.create({
       data: {
         title: input.title,
         price: toDecimal(input.price),
         stock: input.stock,
-        author: connectOrCreateByName(input.authorName),
-        publisher: connectOrCreateByName(input.publisherName),
-        genre: connectOrCreateByName(input.genreName),
+        author,
+        publisher,
+        genre,
       },
       include: BOOK_INCLUDE,
     });
@@ -153,7 +210,7 @@ export class BooksRepository {
     return count === 1;
   }
 
-  update(
+  async update(
     db: DbClient,
     id: string,
     input: Partial<BookInput>,
@@ -164,11 +221,15 @@ export class BooksRepository {
     if (input.price !== undefined) data.price = toDecimal(input.price);
     if (input.stock !== undefined) data.stock = input.stock;
     if (input.authorName !== undefined)
-      data.author = connectOrCreateByName(input.authorName);
+      data.author = await connectOrCreateByName(db, 'author', input.authorName);
     if (input.publisherName !== undefined)
-      data.publisher = connectOrCreateByName(input.publisherName);
+      data.publisher = await connectOrCreateByName(
+        db,
+        'publisher',
+        input.publisherName,
+      );
     if (input.genreName !== undefined)
-      data.genre = connectOrCreateByName(input.genreName);
+      data.genre = await connectOrCreateByName(db, 'genre', input.genreName);
     if (version) data.updatedAt = version;
     return db.book.update({ where: { id }, data, include: BOOK_INCLUDE });
   }

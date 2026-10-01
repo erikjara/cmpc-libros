@@ -269,7 +269,7 @@ export class BooksService {
 
   /**
    * Si otra transacción creó a la vez el mismo autor, editorial o género, se repite la
-   * transacción completa una vez: en el segundo intento `connectOrCreate` lo encuentra.
+   * transacción completa una vez: en el segundo intento la búsqueda por nombre lo encuentra.
    */
   private async retryOnCatalogRace<T>(run: () => Promise<T>): Promise<T> {
     try {
