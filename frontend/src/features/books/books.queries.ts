@@ -45,13 +45,26 @@ export function useBookQuery(id: string) {
   })
 }
 
-export interface SaveBookVariables {
-  id?: string
-  /** updatedAt del libro cargado al editar; se envía como If-Match. */
-  expectedUpdatedAt?: string
-  input: BookInput
-  image: File | null
+// Para editar: pide siempre la versión vigente al montar, aunque haya una copia en caché sin vencer.
+export function useFreshBookQuery(id: string) {
+  return useQuery({
+    queryKey: bookKeys.detail(id),
+    queryFn: () => fetchBook(id),
+    staleTime: 0,
+    refetchOnMount: 'always',
+  })
 }
+
+export type SaveBookVariables =
+  | { id?: undefined; input: BookInput; image: File | null }
+  | {
+      id: string
+      /** updatedAt de la versión que pobló el formulario; se envía como If-Match. */
+      expectedUpdatedAt: string
+      /** Solo los campos que el usuario modificó. */
+      changes: Partial<BookInput>
+      image: File | null
+    }
 
 export interface SaveBookResult {
   book: Book
@@ -63,8 +76,18 @@ export interface SaveBookResult {
 export function useSaveBook() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, expectedUpdatedAt, input, image }: SaveBookVariables): Promise<SaveBookResult> => {
-      let book = id ? await updateBook(id, input, expectedUpdatedAt) : await createBook(input)
+    mutationFn: async (variables: SaveBookVariables): Promise<SaveBookResult> => {
+      const { image } = variables
+      if (variables.id !== undefined && Object.keys(variables.changes).length === 0) {
+        // Solo cambió la portada: la API exige al menos un campo en el PATCH, así que se sube la
+        // imagen directamente; si falla no se guardó nada y la mutación falla.
+        if (!image) throw new ApiError(0, 'No hay cambios para guardar')
+        return { book: await uploadBookImage(variables.id, image), imageError: null }
+      }
+      let book =
+        variables.id === undefined
+          ? await createBook(variables.input)
+          : await updateBook(variables.id, variables.changes, variables.expectedUpdatedAt)
       let imageError: ApiError | null = null
       if (image) {
         try {
@@ -83,7 +106,8 @@ export function useSaveBook() {
       ])
     },
     onError: async (error, { id }) => {
-      // 412: otra persona modificó el libro; se recarga el detalle para comparar con la versión actual.
+      // 412: otra persona modificó el libro; se actualiza la caché del detalle. El formulario abierto
+      // no la adopta solo: espera a que el usuario pida recargar la versión actual.
       if (id && error instanceof ApiError && error.status === 412) {
         await queryClient.invalidateQueries({ queryKey: bookKeys.detail(id), exact: true })
       }

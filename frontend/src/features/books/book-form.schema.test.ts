@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { bookFormSchema, emptyBookForm, parsePrice, PRICE_FORMAT_MESSAGE } from './book-form.schema'
+import { buildBooks } from '@/test/msw/fixtures'
+import { bookFormSchema, bookToFormValues, emptyBookForm, formatPriceInput, parsePrice, PRICE_FORMAT_MESSAGE } from './book-form.schema'
+
+describe('formatPriceInput (formato es-CL)', () => {
+  it.each([
+    [12990, '12.990'],
+    [12990.5, '12.990,5'],
+    [8990, '8.990'],
+    [0, '0'],
+    [0.5, '0,5'],
+    [1234567.89, '1.234.567,89'],
+    [99_999_999.99, '99.999.999,99'],
+  ])('%s → %s y parsePrice lo lee de vuelta', (price, expected) => {
+    expect(formatPriceInput(price)).toBe(expected)
+    expect(parsePrice(formatPriceInput(price))).toBe(price)
+  })
+
+  it('bookToFormValues muestra el precio con formato', () => {
+    const [book] = buildBooks()
+    expect(bookToFormValues({ ...book, price: 12990 }).price).toBe('12.990')
+    expect(bookToFormValues({ ...book, price: 12990.5 }).price).toBe('12.990,5')
+  })
+})
 
 describe('parsePrice (formato es-CL)', () => {
   it.each([

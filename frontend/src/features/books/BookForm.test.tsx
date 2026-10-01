@@ -45,7 +45,7 @@ describe('BookForm', () => {
     const { user, onSubmit } = renderForm({ defaultValues: { ...validValues, price: '' } })
     await user.type(screen.getByLabelText('Precio (CLP)'), '15.990,5')
     await user.click(screen.getByRole('button', { name: 'Crear libro' }))
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ price: 15990.5 }), null))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ price: 15990.5 }), null, expect.anything()))
   })
 
   it('valida de forma reactiva el título, el precio y el stock', async () => {
@@ -83,6 +83,7 @@ describe('BookForm', () => {
           stock: 5,
         },
         null,
+        {},
       ),
     )
   })
@@ -91,7 +92,7 @@ describe('BookForm', () => {
     const { user, onSubmit } = renderForm({ defaultValues: { ...validValues, title: '  Rayuela  ' } })
     await waitFor(() => expect(screen.getByRole('button', { name: 'Crear libro' })).toBeEnabled())
     await user.click(screen.getByRole('button', { name: 'Crear libro' }))
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ title: 'Rayuela' }), null))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ title: 'Rayuela' }), null, expect.anything()))
   })
 
   it('permite elegir un autor existente desde el combobox', async () => {
@@ -100,7 +101,7 @@ describe('BookForm', () => {
     await user.click(await screen.findByRole('option', { name: 'Isabel Allende' }))
     await user.click(screen.getByRole('button', { name: 'Crear libro' }))
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ authorName: 'Isabel Allende' }), null),
+      expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ authorName: 'Isabel Allende' }), null, expect.anything()),
     )
   })
 
@@ -112,7 +113,7 @@ describe('BookForm', () => {
     await waitFor(() => expect(submit).toBeEnabled())
     await user.click(submit)
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ authorName: 'Roberto Bolaño' }), null),
+      expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ authorName: 'Roberto Bolaño' }), null, expect.anything()),
     )
   })
 
@@ -121,7 +122,7 @@ describe('BookForm', () => {
     const file = new File([new Uint8Array(10)], 'portada.png', { type: 'image/png' })
     await user.upload(screen.getByLabelText('Portada'), file)
     await user.click(screen.getByRole('button', { name: 'Crear libro' }))
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.any(Object), file))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.any(Object), file, {}))
   })
 
   it('deshabilita el botón y muestra "Guardando…" mientras envía', async () => {
@@ -132,6 +133,34 @@ describe('BookForm', () => {
     expect(await screen.findByRole('button', { name: 'Guardando…' })).toBeDisabled()
     resolveSubmit()
     expect(await screen.findByRole('button', { name: 'Crear libro' })).toBeEnabled()
+  })
+
+  it('informa en `changes` solo los campos modificados', async () => {
+    const { user, onSubmit } = renderForm({ defaultValues: validValues })
+    const title = screen.getByLabelText('Título')
+    await user.clear(title)
+    await user.type(title, 'Rayuela')
+    await user.click(screen.getByRole('button', { name: 'Crear libro' }))
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ stock: 5 }), null, { title: 'Rayuela' }),
+    )
+  })
+
+  it('con requireChanges solo habilita el envío si hay cambios y los informa', async () => {
+    const onChangesStatus = vi.fn()
+    const { user } = renderForm({ defaultValues: validValues, requireChanges: true, onChangesStatus })
+    const submit = screen.getByRole('button', { name: 'Crear libro' })
+    await waitFor(() => expect(onChangesStatus).toHaveBeenLastCalledWith(false))
+    expect(submit).toBeDisabled()
+    await user.type(screen.getByLabelText('Stock'), '0')
+    await waitFor(() => expect(submit).toBeEnabled())
+    expect(onChangesStatus).toHaveBeenLastCalledWith(true)
+  })
+
+  it('submitBlocked impide enviar aunque el formulario sea válido', async () => {
+    renderForm({ defaultValues: validValues, submitBlocked: true })
+    await waitFor(() => expect(screen.getByLabelText('Título')).toHaveValue('Cien años de soledad'))
+    expect(screen.getByRole('button', { name: 'Crear libro' })).toBeDisabled()
   })
 
   it('llama a onCancel', async () => {

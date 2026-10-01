@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
@@ -13,8 +13,15 @@ interface BookFormProps {
   defaultValues?: BookFormInput
   currentImageUrl?: string | null
   submitLabel: string
-  onSubmit: (input: BookInput, image: File | null) => Promise<void>
+  /** `changes` contiene solo los campos que el usuario modificó respecto de `defaultValues`. */
+  onSubmit: (input: BookInput, image: File | null, changes: Partial<BookInput>) => Promise<void>
   onCancel: () => void
+  /** Deshabilita el envío mientras no haya cambios (edición). */
+  requireChanges?: boolean
+  /** Bloquea el envío aunque el formulario sea válido (p. ej. ante un conflicto de versión). */
+  submitBlocked?: boolean
+  /** Informa si hay cambios locales sin guardar (campos modificados o portada elegida). */
+  onChangesStatus?: (hasChanges: boolean) => void
 }
 
 const CATALOG_FIELDS: ReadonlyArray<{
@@ -28,16 +35,35 @@ const CATALOG_FIELDS: ReadonlyArray<{
   { name: 'genreName', kind: 'genres', label: 'Género', placeholder: 'Busca o escribe un género' },
 ]
 
-export function BookForm({ defaultValues = emptyBookForm, currentImageUrl, submitLabel, onSubmit, onCancel }: BookFormProps) {
+export function BookForm({
+  defaultValues = emptyBookForm,
+  currentImageUrl,
+  submitLabel,
+  onSubmit,
+  onCancel,
+  requireChanges = false,
+  submitBlocked = false,
+  onChangesStatus,
+}: BookFormProps) {
   const [image, setImage] = useState<File | null>(null)
   const form = useForm<BookFormInput, unknown, BookFormOutput>({
     resolver: zodResolver(bookFormSchema),
     mode: 'onChange',
     defaultValues,
   })
-  const { isValid, isSubmitting } = form.formState
+  const { isValid, isSubmitting, isDirty, dirtyFields } = form.formState
+  const hasChanges = isDirty || image !== null
 
-  const submit = form.handleSubmit((values) => onSubmit(values, image))
+  useEffect(() => {
+    onChangesStatus?.(hasChanges)
+  }, [hasChanges, onChangesStatus])
+
+  const submit = form.handleSubmit((values) => {
+    const changes = Object.fromEntries(
+      Object.entries(values).filter(([name]) => dirtyFields[name as keyof BookFormInput]),
+    ) as Partial<BookInput>
+    return onSubmit(values, image, changes)
+  })
 
   return (
     <form noValidate onSubmit={submit} className="flex flex-col gap-6">
@@ -111,7 +137,7 @@ export function BookForm({ defaultValues = emptyBookForm, currentImageUrl, submi
         <ImagePicker currentImageUrl={currentImageUrl} onFileChange={setImage} />
       </FieldGroup>
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" disabled={!isValid || isSubmitting}>
+        <Button type="submit" disabled={!isValid || isSubmitting || submitBlocked || (requireChanges && !hasChanges)}>
           {isSubmitting ? 'Guardando…' : submitLabel}
         </Button>
         <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>

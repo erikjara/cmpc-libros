@@ -10,6 +10,14 @@ interface Db {
   publishers: CatalogItem[]
   genres: CatalogItem[]
   auditLogs: AuditLog[]
+  /** PATCH /books/:id recibidos, para verificar qué campos y qué If-Match envía el cliente. */
+  bookPatches: BookPatchRequest[]
+}
+
+export interface BookPatchRequest {
+  id: string
+  ifMatch: string | null
+  body: unknown
 }
 
 export const db: Db = {
@@ -20,6 +28,7 @@ export const db: Db = {
   publishers: [...publishers],
   genres: [...genres],
   auditLogs: buildAuditLogs(),
+  bookPatches: [],
 }
 
 export function resetDb(): void {
@@ -30,6 +39,7 @@ export function resetDb(): void {
   db.publishers = [...publishers]
   db.genres = [...genres]
   db.auditLogs = buildAuditLogs()
+  db.bookPatches = []
 }
 
 export function upsertCatalogItem(list: CatalogItem[], rawName: string): CatalogItem {
@@ -43,4 +53,17 @@ export function upsertCatalogItem(list: CatalogItem[], rawName: string): Catalog
 
 export function findActiveBook(id: string): Book | undefined {
   return db.deletedBookIds.has(id) ? undefined : db.books.find((book) => book.id === id)
+}
+
+// Simula que otra persona guarda cambios por la API entre dos lecturas del cliente: el libro
+// cambia y su updatedAt (la versión del ETag) avanza.
+export function simulateExternalUpdate(id: string, changes: Partial<Pick<Book, 'title' | 'price' | 'stock'>>): Book {
+  const index = db.books.findIndex((book) => book.id === id)
+  if (index === -1) throw new Error(`Libro ${id} no existe`)
+  const current = db.books[index]
+  const stock = changes.stock ?? current.stock
+  const updatedAt = new Date(Math.max(Date.now(), Date.parse(current.updatedAt) + 1)).toISOString()
+  const updated: Book = { ...current, ...changes, available: stock > 0, updatedAt }
+  db.books[index] = updated
+  return updated
 }
