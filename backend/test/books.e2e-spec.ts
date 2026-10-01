@@ -347,7 +347,7 @@ describe('API de libros (e2e)', () => {
   });
 
   describe('exportación CSV', () => {
-    it('entrega BOM, encabezados del contrato y los libros filtrados', async () => {
+    it('entrega BOM, encabezados de la API y los libros filtrados', async () => {
       await createBook({ title: 'Exportable, con "comillas"', stock: 0 });
       const response = await api()
         .get('/api/books/export?search=Exportable')

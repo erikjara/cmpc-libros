@@ -32,7 +32,7 @@ describe('BooksExportService', () => {
     service = new BooksExportService(prisma, repository, audit);
   });
 
-  it('escribe BOM, encabezados del contrato y escapa comas y comillas (RFC 4180)', async () => {
+  it('escribe BOM, encabezados de la API y escapa comas y comillas (RFC 4180)', async () => {
     repository.findBatch.mockResolvedValueOnce([
       makeBook({ title: 'El "gran" libro, parte 1' }),
     ]);
