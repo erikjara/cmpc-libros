@@ -2,7 +2,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
-import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { CatalogCombobox } from '@/features/catalog/CatalogCombobox'
 import type { BookInput, CatalogKind } from '@/lib/api-types'
@@ -84,7 +84,14 @@ export function BookForm({ defaultValues = emptyBookForm, currentImageUrl, submi
             render={({ field, fieldState }) => (
               <Field data-invalid={fieldState.invalid}>
                 <FieldLabel htmlFor="book-price">Precio (CLP)</FieldLabel>
-                <Input {...field} id="book-price" inputMode="decimal" aria-invalid={fieldState.invalid} />
+                <Input
+                  {...field}
+                  id="book-price"
+                  inputMode="decimal"
+                  aria-invalid={fieldState.invalid}
+                  aria-describedby="book-price-help"
+                />
+                <FieldDescription id="book-price-help">Ej.: 15.990</FieldDescription>
                 {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
               </Field>
             )}

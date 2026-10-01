@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter } from 'react-router'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { httpClient } from '@/lib/http-client'
 import { db } from '@/test/msw/db'
 import { errorBody } from '@/test/msw/handlers'
@@ -9,6 +9,16 @@ import { server } from '@/test/msw/server'
 import { createTestQueryClient, renderRoutes } from '@/test/render'
 import { createRoutes } from './routes'
 import { installSessionExpiredHandler, SESSION_EXPIRED_MESSAGE } from './session-expired'
+
+function countRequests(pathname: string): () => number {
+  let count = 0
+  const listener = ({ request }: { request: Request }) => {
+    if (new URL(request.url).pathname === pathname) count += 1
+  }
+  server.events.on('request:start', listener)
+  onTestFinished(() => server.events.removeListener('request:start', listener))
+  return () => count
+}
 
 function renderApp(initialEntry: string) {
   const queryClient = createTestQueryClient()
@@ -35,6 +45,14 @@ describe('rutas de la aplicación', () => {
     await user.click(screen.getByRole('button', { name: 'Ingresar' }))
     expect(await screen.findByRole('heading', { name: 'Libros' })).toBeInTheDocument()
     expect(`${router.state.location.pathname}${router.state.location.search}`).toBe('/books?page=2')
+  })
+
+  it('sin sesión consulta /api/auth/me una sola vez al redirigir a /login', async () => {
+    db.sessionUser = null
+    const meRequests = countRequests('/api/auth/me')
+    renderApp('/books')
+    expect(await screen.findByRole('button', { name: 'Ingresar' })).toBeInTheDocument()
+    expect(meRequests()).toBe(1)
   })
 
   it('cierra sesión y vuelve a /login', async () => {

@@ -3,10 +3,12 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import { db } from '@/test/msw/db'
 import { buildBooks } from '@/test/msw/fixtures'
-import { errorBody } from '@/test/msw/handlers'
+import { errorBody, STALE_BOOK_MESSAGE } from '@/test/msw/handlers'
 import { server } from '@/test/msw/server'
 import { LocationDisplay } from '@/test/LocationDisplay'
 import { renderRoutes } from '@/test/render'
+import type { Book } from '@/lib/api-types'
+import { bookKeys } from './books.queries'
 import { BookFormPage } from './BookFormPage'
 
 const [existing] = buildBooks()
@@ -111,6 +113,31 @@ describe('BookFormPage (edición)', () => {
     expect(await screen.findByText('Libro actualizado')).toBeInTheDocument()
     expect(db.books.find((book) => book.id === existing.id)).toMatchObject({ stock: 0, available: false })
     await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(`/books/${existing.id}`))
+  })
+
+  it('si otra persona modificó el libro avisa, recarga el detalle y conserva lo escrito', async () => {
+    const { user, queryClient } = renderPage(`/books/${existing.id}/edit`)
+    const title = await screen.findByLabelText('Título')
+    // Otra persona guarda cambios después de que se cargó el formulario.
+    const concurrentUpdatedAt = '2026-09-30T23:58:12.345Z'
+    db.books[0] = { ...db.books[0], stock: 99, updatedAt: concurrentUpdatedAt }
+
+    await user.clear(title)
+    await user.type(title, 'Cien años de soledad (edición conmemorativa)')
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+
+    expect(await screen.findByText(STALE_BOOK_MESSAGE)).toBeInTheDocument()
+    expect(screen.queryByTestId('location')).not.toBeInTheDocument()
+    expect(db.books[0]).toMatchObject({ title: 'Cien años de soledad', stock: 99 })
+    await waitFor(() =>
+      expect(queryClient.getQueryData<Book>(bookKeys.detail(existing.id))?.updatedAt).toBe(concurrentUpdatedAt),
+    )
+    expect(screen.getByLabelText('Título')).toHaveValue('Cien años de soledad (edición conmemorativa)')
+
+    // Tras el aviso, guardar de nuevo se compara con la versión recién cargada.
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    expect(await screen.findByText('Libro actualizado')).toBeInTheDocument()
+    expect(db.books[0].title).toBe('Cien años de soledad (edición conmemorativa)')
   })
 
   it('muestra "Libro no encontrado" si el libro no existe', async () => {

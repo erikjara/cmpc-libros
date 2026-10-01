@@ -9,13 +9,13 @@ import { bookToFormValues } from './book-form.schema'
 import { useBookQuery, useSaveBook } from './books.queries'
 import { BookForm } from './BookForm'
 
-function useSubmitBook(id?: string) {
+function useSubmitBook(id?: string, expectedUpdatedAt?: string) {
   const navigate = useNavigate()
   const saveBook = useSaveBook()
 
   return async (input: BookInput, image: File | null) => {
     try {
-      const { book, imageError } = await saveBook.mutateAsync({ id, input, image })
+      const { book, imageError } = await saveBook.mutateAsync({ id, expectedUpdatedAt, input, image })
       if (imageError) {
         toast.error(`El libro se guardó, pero no se pudo subir la imagen: ${imageError.message}`)
       } else {
@@ -23,6 +23,9 @@ function useSubmitBook(id?: string) {
       }
       await navigate(`/books/${book.id}`)
     } catch (error) {
+      // Ante un 412 el detalle se recarga (useSaveBook) y el formulario conserva lo escrito: el
+      // siguiente guardado se compara con la versión recién cargada, así que sobrescribir los
+      // cambios ajenos pasa a ser una decisión explícita tras el aviso.
       toast.error(getErrorMessage(error))
     }
   }
@@ -42,7 +45,7 @@ function CreateBook() {
 function EditBook({ id }: { id: string }) {
   const navigate = useNavigate()
   const bookQuery = useBookQuery(id)
-  const submit = useSubmitBook(id)
+  const submit = useSubmitBook(id, bookQuery.data?.updatedAt)
 
   if (bookQuery.isPending) {
     return <Skeleton data-testid="book-form-skeleton" className="h-96 w-full max-w-3xl" />

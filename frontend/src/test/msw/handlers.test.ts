@@ -3,6 +3,7 @@ import type { BookInput } from '@/lib/api-types'
 import { httpClient } from '@/lib/http-client'
 import { db } from './db'
 import { buildBooks } from './fixtures'
+import { STALE_BOOK_MESSAGE } from './handlers'
 
 // Los handlers de MSW deben comportarse como el contrato del backend para que los tests del
 // frontend detecten requests que el servidor real rechazaría.
@@ -43,18 +44,26 @@ describe('handlers de MSW: GET /books', () => {
 })
 
 describe('handlers de MSW: GET /books/export', () => {
-  it('devuelve un CSV con BOM, encabezados del contrato y los filtros aplicados', async () => {
+  it('devuelve un CSV para Excel en es-CL con BOM, encabezados y los filtros aplicados', async () => {
     const response = await httpClient.get<ArrayBuffer>('/books/export?search=cien&sort=title:asc', {
       responseType: 'arraybuffer',
     })
     expect(response.headers['content-type']).toContain('text/csv')
     expect(response.headers['content-disposition']).toMatch(/^attachment; filename="libros-\d{4}-\d{2}-\d{2}\.csv"$/)
     const lines = new TextDecoder('utf-8', { ignoreBOM: true }).decode(response.data).split('\r\n')
-    expect(lines[0]).toBe('﻿ID,Título,Autor,Editorial,Género,Precio,Stock,Disponible,Creado')
+    expect(lines[0]).toBe('﻿ID;Título;Autor;Editorial;Género;Precio;Stock;Disponible;Creado')
     expect(lines[1]).toBe(
-      `${book.id},Cien años de soledad,Gabriel García Márquez,Editorial Sudamericana,Novela,15990,5,Sí,${book.createdAt}`,
+      `${book.id};Cien años de soledad;Gabriel García Márquez;Editorial Sudamericana;Novela;15990;5;Sí;${book.createdAt}`,
     )
     expect(lines).toHaveLength(2)
+  })
+
+  it('usa coma decimal en el precio y escapa celdas con ";"', async () => {
+    db.books[0] = { ...db.books[0], title: 'Uno; dos', price: 15990.5 }
+    const response = await httpClient.get<ArrayBuffer>('/books/export?search=uno', { responseType: 'arraybuffer' })
+    const [, row] = new TextDecoder('utf-8', { ignoreBOM: true }).decode(response.data).split('\r\n')
+    expect(row).toContain(';"Uno; dos";')
+    expect(row).toContain(';15990,50;')
   })
 
   it('no acepta page ni limit', async () => {
@@ -114,5 +123,47 @@ describe('handlers de MSW: validación de BookInput', () => {
     expect(await statusOf(httpClient.patch(`/books/${book.id}`, { stock: 0 }))).toBe(200)
     expect(await statusOf(httpClient.patch(`/books/${book.id}`, {}))).toBe(400)
     expect(await statusOf(httpClient.patch(`/books/${book.id}`, { price: 'caro' }))).toBe(400)
+  })
+})
+
+describe('handlers de MSW: bloqueo optimista', () => {
+  const etagOf = (value: string) => `"${value}"`
+
+  it('responde ETag con el updatedAt del libro en lectura y escritura', async () => {
+    const read = await httpClient.get(`/books/${book.id}`)
+    expect(read.headers.etag).toBe(etagOf(book.updatedAt))
+    const created = await httpClient.post('/books', validInput)
+    expect(created.headers.etag).toBe(etagOf(created.data.data.updatedAt))
+    const restored = await httpClient.post(`/books/${book.id}/restore`)
+    expect(restored.headers.etag).toBe(etagOf(restored.data.data.updatedAt))
+  })
+
+  it('PATCH con If-Match vigente guarda y devuelve el nuevo ETag', async () => {
+    const response = await httpClient.patch(`/books/${book.id}`, { stock: 9 }, { headers: { 'If-Match': etagOf(book.updatedAt) } })
+    expect(response.data.data.stock).toBe(9)
+    expect(response.data.data.updatedAt).not.toBe(book.updatedAt)
+    expect(response.headers.etag).toBe(etagOf(response.data.data.updatedAt))
+  })
+
+  it('PATCH con If-Match desactualizado responde 412 sin modificar el libro', async () => {
+    const error = await httpClient
+      .patch(`/books/${book.id}`, { stock: 9 }, { headers: { 'If-Match': etagOf('2020-01-01T00:00:00.000Z') } })
+      .catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ status: 412, message: STALE_BOOK_MESSAGE })
+    expect(db.books[0].stock).toBe(book.stock)
+  })
+
+  it('PATCH sin If-Match mantiene "gana la última escritura"', async () => {
+    expect(await statusOf(httpClient.patch(`/books/${book.id}`, { stock: 9 }))).toBe(200)
+  })
+
+  it('PATCH sin cambios efectivos no modifica updatedAt', async () => {
+    const response = await httpClient.patch(
+      `/books/${book.id}`,
+      { title: book.title, price: book.price, stock: book.stock },
+      { headers: { 'If-Match': etagOf(book.updatedAt) } },
+    )
+    expect(response.data.data.updatedAt).toBe(book.updatedAt)
+    expect(response.headers.etag).toBe(etagOf(book.updatedAt))
   })
 })

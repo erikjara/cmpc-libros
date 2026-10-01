@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/combobox'
 import type { CatalogKind } from '@/lib/api-types'
 import { useDebounce } from '@/shared/useDebounce'
+import { CATALOG_TRIGGER_LABELS } from './catalog-labels'
 import { catalogQueryOptions, useCatalogOptions } from './catalog.queries'
 
 interface CatalogComboboxProps {
@@ -113,6 +114,7 @@ export function CatalogCombobox({
         aria-invalid={invalid}
         onBlur={handleBlur}
         className="w-full"
+        triggerLabel={CATALOG_TRIGGER_LABELS[kind]}
       />
       <ComboboxContent>
         <ComboboxEmpty>Sin resultados</ComboboxEmpty>

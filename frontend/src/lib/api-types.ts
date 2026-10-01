@@ -1,4 +1,4 @@
-// Tipos del contrato HTTP compartido con el backend (.plans/00-contrato.md).
+// Tipos del contrato de la API (ver Swagger en /api/docs).
 export interface PaginationMeta {
   page: number
   limit: number
