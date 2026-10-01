@@ -4,7 +4,7 @@ import { httpClient } from '@/lib/http-client'
 import { buildBooks } from '@/test/msw/fixtures'
 import { server } from '@/test/msw/server'
 import { db } from '@/test/msw/db'
-import { buildExportUrl, fetchBooks, fetchTrash, restoreBook, toQueryString, updateBook } from './books.api'
+import { buildExportUrl, fetchBooks, fetchTrash, restoreBook, toQueryString, updateBook, uploadBookImage } from './books.api'
 
 const [existing] = buildBooks()
 
@@ -66,6 +66,20 @@ describe('updateBook', () => {
     )
     await updateBook(existing.id, { stock: 1 })
     expect(ifMatch).toBeNull()
+  })
+})
+
+describe('uploadBookImage', () => {
+  const file = () => new File([new Uint8Array(10)], 'p.webp', { type: 'image/webp' })
+
+  it('envía If-Match con la versión esperada', async () => {
+    await uploadBookImage(existing.id, file(), existing.updatedAt)
+    expect(db.bookImageUploads).toEqual([{ id: existing.id, ifMatch: `"${existing.updatedAt}"` }])
+  })
+
+  it('sin versión esperada no envía If-Match', async () => {
+    await uploadBookImage(existing.id, file())
+    expect(db.bookImageUploads).toEqual([{ id: existing.id, ifMatch: null }])
   })
 })
 

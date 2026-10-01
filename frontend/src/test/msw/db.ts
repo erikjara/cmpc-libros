@@ -12,6 +12,13 @@ interface Db {
   auditLogs: AuditLog[]
   /** PATCH /books/:id recibidos, para verificar qué campos y qué If-Match envía el cliente. */
   bookPatches: BookPatchRequest[]
+  /** POST /books/:id/image recibidos, para verificar qué If-Match envía el cliente. */
+  bookImageUploads: BookImageUploadRequest[]
+}
+
+export interface BookImageUploadRequest {
+  id: string
+  ifMatch: string | null
 }
 
 export interface BookPatchRequest {
@@ -29,6 +36,7 @@ export const db: Db = {
   genres: [...genres],
   auditLogs: buildAuditLogs(),
   bookPatches: [],
+  bookImageUploads: [],
 }
 
 export function resetDb(): void {
@@ -40,6 +48,7 @@ export function resetDb(): void {
   db.genres = [...genres]
   db.auditLogs = buildAuditLogs()
   db.bookPatches = []
+  db.bookImageUploads = []
 }
 
 export function upsertCatalogItem(list: CatalogItem[], rawName: string): CatalogItem {

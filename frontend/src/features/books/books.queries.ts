@@ -59,7 +59,7 @@ export type SaveBookVariables =
   | { id?: undefined; input: BookInput; image: File | null }
   | {
       id: string
-      /** updatedAt de la versión que pobló el formulario; se envía como If-Match. */
+      /** updatedAt de la versión que pobló el formulario; se envía como If-Match (PATCH o portada). */
       expectedUpdatedAt: string
       /** Solo los campos que el usuario modificó. */
       changes: Partial<BookInput>
@@ -72,7 +72,8 @@ export interface SaveBookResult {
 }
 
 // Guarda el libro y, si hay imagen, la sube en una segunda request. Si la imagen falla el libro
-// ya quedó guardado: se informa con imageError en lugar de rechazar la mutación.
+// ya quedó guardado: se informa con imageError en lugar de rechazar la mutación. Al editar, la
+// subida también lleva If-Match: la versión que vio el usuario o, tras el PATCH, la que este devolvió.
 export function useSaveBook() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -80,9 +81,9 @@ export function useSaveBook() {
       const { image } = variables
       if (variables.id !== undefined && Object.keys(variables.changes).length === 0) {
         // Solo cambió la portada: la API exige al menos un campo en el PATCH, así que se sube la
-        // imagen directamente; si falla no se guardó nada y la mutación falla.
+        // imagen directamente; si falla (incluido el 412) no se guardó nada y la mutación falla.
         if (!image) throw new ApiError(0, 'No hay cambios para guardar')
-        return { book: await uploadBookImage(variables.id, image), imageError: null }
+        return { book: await uploadBookImage(variables.id, image, variables.expectedUpdatedAt), imageError: null }
       }
       let book =
         variables.id === undefined
@@ -91,19 +92,24 @@ export function useSaveBook() {
       let imageError: ApiError | null = null
       if (image) {
         try {
-          book = await uploadBookImage(book.id, image)
+          book = await uploadBookImage(book.id, image, variables.id === undefined ? undefined : book.updatedAt)
         } catch (error) {
           imageError = error instanceof ApiError ? error : new ApiError(0, 'No se pudo subir la imagen')
         }
       }
       return { book, imageError }
     },
-    onSuccess: async ({ book }) => {
+    onSuccess: async ({ book, imageError }) => {
       queryClient.setQueryData(bookKeys.detail(book.id), book)
-      await Promise.all([
+      const invalidations = [
         queryClient.invalidateQueries({ queryKey: bookKeys.lists() }),
         queryClient.invalidateQueries({ queryKey: catalogKeys.all }),
-      ])
+      ]
+      // Los datos se guardaron pero la portada dio 412: hay una versión más nueva que la del PATCH.
+      if (imageError?.status === 412) {
+        invalidations.push(queryClient.invalidateQueries({ queryKey: bookKeys.detail(book.id), exact: true }))
+      }
+      await Promise.all(invalidations)
     },
     onError: async (error, { id }) => {
       // 412: otra persona modificó el libro; se actualiza la caché del detalle. El formulario abierto

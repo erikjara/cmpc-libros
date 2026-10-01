@@ -157,6 +157,25 @@ describe('handlers de MSW: bloqueo optimista', () => {
     expect(await statusOf(httpClient.patch(`/books/${book.id}`, { stock: 9 }))).toBe(200)
   })
 
+  it('POST /image con If-Match vigente cambia la portada y devuelve un ETag nuevo; obsoleto responde 412', async () => {
+    const image = () => {
+      const form = new FormData()
+      form.append('image', new File([new Uint8Array(10)], 'p.webp', { type: 'image/webp' }))
+      return form
+    }
+    const stale = await httpClient
+      .post(`/books/${book.id}/image`, image(), { headers: { 'If-Match': etagOf('2020-01-01T00:00:00.000Z') } })
+      .catch((caught: unknown) => caught)
+    expect(stale).toMatchObject({ status: 412, message: STALE_BOOK_MESSAGE })
+    expect(db.books[0].imageUrl).toBe(book.imageUrl)
+
+    const response = await httpClient.post(`/books/${book.id}/image`, image(), {
+      headers: { 'If-Match': etagOf(book.updatedAt) },
+    })
+    expect(response.data.data.updatedAt).not.toBe(book.updatedAt)
+    expect(response.headers.etag).toBe(etagOf(response.data.data.updatedAt))
+  })
+
   it('PATCH sin cambios efectivos no modifica updatedAt', async () => {
     const response = await httpClient.patch(
       `/books/${book.id}`,

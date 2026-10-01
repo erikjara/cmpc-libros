@@ -220,6 +220,15 @@ export class BooksController {
   )
   @ApiOperation({
     summary: 'Sube o reemplaza la imagen (JPEG, PNG o WebP, máx. 2 MB)',
+    description:
+      'Crea una versión nueva del libro (nuevo `updatedAt` y `ETag`). Con `If-Match` (el `ETag` recibido) falla con 412 si otra persona modificó el libro, sin guardar la imagen nueva ni borrar la anterior; sin él gana la última escritura.',
+  })
+  @ApiHeader({
+    name: 'If-Match',
+    required: false,
+    description:
+      'Versión esperada del libro: el `ETag` de la última lectura (`updatedAt` ISO 8601 entre comillas).',
+    schema: { type: 'string', example: '"2026-09-30T23:58:12.345Z"' },
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -230,17 +239,18 @@ export class BooksController {
     },
   })
   @ApiDataResponse(BookResponseDto, { etag: true })
-  @ApiErrors(400, 404, 413)
+  @ApiErrors(400, 404, 412, 413)
   uploadImage(
     @Param('id', UUID_PARAM_PIPE) id: string,
     @UploadedFile() file: UploadedImage | undefined,
     @ReqContext() context: RequestContext,
+    @Headers('if-match') ifMatch: string | undefined,
   ): Promise<BookDto> {
     if (!file) {
       throw new BadRequestException(
         'Debes adjuntar una imagen en el campo "image"',
       );
     }
-    return this.books.setImage(id, file, context);
+    return this.books.setImage(id, file, context, parseIfMatch(ifMatch));
   }
 }

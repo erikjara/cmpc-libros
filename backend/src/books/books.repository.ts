@@ -254,10 +254,11 @@ export class BooksRepository {
     db: DbClient,
     id: string,
     imageKey: string,
+    version?: Date,
   ): Promise<BookWithRelations> {
     return db.book.update({
       where: { id },
-      data: { imageKey },
+      data: version ? { imageKey, updatedAt: version } : { imageKey },
       include: BOOK_INCLUDE,
     });
   }

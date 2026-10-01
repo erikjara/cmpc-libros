@@ -1,7 +1,15 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough, Readable } from 'node:stream';
-import { BadRequestException, Logger, StreamableFile } from '@nestjs/common';
+import {
+  BadRequestException,
+  Logger,
+  PreconditionFailedException,
+  StreamableFile,
+  type CallHandler,
+  type ExecutionContext,
+} from '@nestjs/common';
 import type { Response } from 'express';
+import { from, lastValueFrom } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import {
@@ -20,7 +28,7 @@ import { JPEG_BYTES } from '../testing/image-fixtures.js';
 import { toBookDto, toTrashedBookDto } from './book.mapper.js';
 import type { BooksExportService } from './books-export.service.js';
 import { BooksController } from './books.controller.js';
-import type { BooksService } from './books.service.js';
+import { BOOK_MODIFIED, type BooksService } from './books.service.js';
 import type { BookListQueryDto } from './dto/book-list-query.dto.js';
 import type { TrashQueryDto } from './dto/trash-query.dto.js';
 
@@ -234,21 +242,84 @@ describe('BooksController', () => {
     expect(destroy).not.toHaveBeenCalled();
   });
 
-  it('uploadImage exige el archivo', () => {
-    expect(() =>
-      controller.uploadImage(BOOK_ID, undefined, REQUEST_CONTEXT),
-    ).toThrow(BadRequestException);
-  });
-
-  it('uploadImage delega el archivo al service', async () => {
+  describe('uploadImage', () => {
     const file = {
       buffer: JPEG_BYTES,
       mimetype: 'image/jpeg',
-      size: 6,
+      size: JPEG_BYTES.length,
       originalname: 'a.jpg',
     };
-    books.setImage.mockResolvedValue(dto);
-    await controller.uploadImage(BOOK_ID, file, REQUEST_CONTEXT);
-    expect(books.setImage).toHaveBeenCalledWith(BOOK_ID, file, REQUEST_CONTEXT);
+
+    it('exige el archivo', () => {
+      expect(() =>
+        controller.uploadImage(BOOK_ID, undefined, REQUEST_CONTEXT, undefined),
+      ).toThrow(BadRequestException);
+    });
+
+    it('sin If-Match delega el archivo al service sin condición', async () => {
+      books.setImage.mockResolvedValue(dto);
+      await controller.uploadImage(BOOK_ID, file, REQUEST_CONTEXT, undefined);
+      expect(books.setImage).toHaveBeenCalledWith(
+        BOOK_ID,
+        file,
+        REQUEST_CONTEXT,
+        undefined,
+      );
+    });
+
+    it('interpreta el header If-Match y lo pasa al service', async () => {
+      books.setImage.mockResolvedValue(dto);
+      await controller.uploadImage(
+        BOOK_ID,
+        file,
+        REQUEST_CONTEXT,
+        '"2026-09-30T23:58:12.345Z"',
+      );
+      expect(books.setImage).toHaveBeenCalledWith(
+        BOOK_ID,
+        file,
+        REQUEST_CONTEXT,
+        { any: false, tags: ['2026-09-30T23:58:12.345Z'] },
+      );
+    });
+
+    it('propaga el 412 del service', async () => {
+      books.setImage.mockRejectedValue(
+        new PreconditionFailedException(BOOK_MODIFIED),
+      );
+      await expect(
+        controller.uploadImage(
+          BOOK_ID,
+          file,
+          REQUEST_CONTEXT,
+          '"2026-09-01T10:00:00.000Z"',
+        ),
+      ).rejects.toThrow(PreconditionFailedException);
+    });
+
+    it('responde con el ETag de la versión nueva', async () => {
+      const updated = toBookDto(
+        makeBook({
+          imageKey: 'new.jpg',
+          updatedAt: new Date('2026-09-03T10:00:00.000Z'),
+        }),
+      );
+      books.setImage.mockResolvedValue(updated);
+      const response = { setHeader: vi.fn() };
+      const context = {
+        switchToHttp: () => ({ getResponse: () => response }),
+      } as unknown as ExecutionContext;
+      const next: CallHandler = {
+        handle: () =>
+          from(controller.uploadImage(BOOK_ID, file, REQUEST_CONTEXT, '*')),
+      };
+
+      await lastValueFrom(new ETagInterceptor().intercept(context, next));
+
+      expect(response.setHeader).toHaveBeenCalledWith(
+        'ETag',
+        '"2026-09-03T10:00:00.000Z"',
+      );
+    });
   });
 });

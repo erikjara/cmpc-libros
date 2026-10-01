@@ -122,14 +122,90 @@ describe('BookFormPage (edición)', () => {
     expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled()
   })
 
-  it('si solo cambia la portada la sube sin enviar un PATCH', async () => {
+  it('si solo cambia la portada la sube sin enviar un PATCH, con If-Match de la versión mostrada', async () => {
     const { user } = renderPage(`/books/${existing.id}/edit`)
     await screen.findByLabelText('Título')
     await user.upload(screen.getByLabelText('Portada'), new File([new Uint8Array(10)], 'p.webp', { type: 'image/webp' }))
     await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
     expect(await screen.findByText('Libro actualizado')).toBeInTheDocument()
     expect(db.bookPatches).toHaveLength(0)
+    expect(db.bookImageUploads).toEqual([{ id: existing.id, ifMatch: `"${existing.updatedAt}"` }])
     expect(db.books[0].imageUrl).toBe(`/api/uploads/${existing.id}.webp`)
+  })
+
+  it('si otra persona cambió el libro y solo cambia la portada, el 412 se muestra y exige recargar', async () => {
+    const { user } = renderPage(`/books/${existing.id}/edit`)
+    await screen.findByLabelText('Título')
+    // Otra persona cambia el título por la API con el formulario ya abierto.
+    const external = simulateExternalUpdate(existing.id, { title: 'Título cambiado por otra persona' })
+
+    await user.upload(screen.getByLabelText('Portada'), new File([new Uint8Array(10)], 'p.webp', { type: 'image/webp' }))
+    const save = screen.getByRole('button', { name: 'Guardar cambios' })
+    await user.click(save)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(STALE_BOOK_MESSAGE)
+    expect(screen.queryByText('Libro actualizado')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('location')).not.toBeInTheDocument()
+    expect(db.bookPatches).toHaveLength(0)
+    expect(db.bookImageUploads).toEqual([{ id: existing.id, ifMatch: `"${existing.updatedAt}"` }])
+    expect(db.books[0]).toMatchObject({ imageUrl: existing.imageUrl, updatedAt: external.updatedAt })
+    expect(save).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Recargar versión actual' }))
+    await waitFor(() => expect(screen.getByLabelText('Título')).toHaveValue('Título cambiado por otra persona'))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('con datos y portada, sube la portada con el If-Match de la versión que devolvió el PATCH', async () => {
+    const { user } = renderPage(`/books/${existing.id}/edit`)
+    const stock = await screen.findByLabelText('Stock')
+    await user.clear(stock)
+    await user.type(stock, '2')
+    await user.upload(screen.getByLabelText('Portada'), new File([new Uint8Array(10)], 'p.webp', { type: 'image/webp' }))
+    let patchedVersion: string | undefined
+    server.use(
+      http.post('/api/books/:id/image', () => {
+        // Sin respuesta: lo atiende el handler por defecto tras registrar la versión del PATCH.
+        patchedVersion = db.books[0].updatedAt
+      }),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+
+    expect(await screen.findByText('Libro actualizado')).toBeInTheDocument()
+    expect(db.bookPatches).toEqual([{ id: existing.id, ifMatch: `"${existing.updatedAt}"`, body: { stock: 2 } }])
+    expect(patchedVersion).not.toBe(existing.updatedAt)
+    expect(db.bookImageUploads).toEqual([{ id: existing.id, ifMatch: `"${patchedVersion}"` }])
+    expect(db.books[0]).toMatchObject({ stock: 2, imageUrl: `/api/uploads/${existing.id}.webp` })
+  })
+
+  it('si el PATCH se guarda pero la portada da 412, avisa que los datos se guardaron y la portada no', async () => {
+    const { user } = renderPage(`/books/${existing.id}/edit`)
+    const stock = await screen.findByLabelText('Stock')
+    await user.clear(stock)
+    await user.type(stock, '2')
+    await user.upload(screen.getByLabelText('Portada'), new File([new Uint8Array(10)], 'p.webp', { type: 'image/webp' }))
+    // Otra persona cambia el precio entre el PATCH y la subida de la portada.
+    server.use(
+      http.post('/api/books/:id/image', () => {
+        simulateExternalUpdate(existing.id, { price: 21990 })
+      }),
+    )
+
+    const save = screen.getByRole('button', { name: 'Guardar cambios' })
+    await user.click(save)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(`Los datos del libro se guardaron, pero la portada no: ${STALE_BOOK_MESSAGE}`)
+    expect(screen.queryByText('Libro actualizado')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('location')).not.toBeInTheDocument()
+    expect(db.books[0]).toMatchObject({ stock: 2, price: 21990, imageUrl: existing.imageUrl })
+    expect(save).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Recargar versión actual' }))
+    await waitFor(() => expect(screen.getByLabelText('Precio (CLP)')).toHaveValue('21.990'))
+    expect(screen.getByLabelText('Stock')).toHaveValue('2')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('con el detalle en caché y un cambio ajeno, editar solo el título no revierte stock ni precio', async () => {

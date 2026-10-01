@@ -18,6 +18,11 @@ function useSubmitBook(onConflict?: (message: string) => void) {
   return async (variables: SaveBookVariables) => {
     try {
       const { book, imageError } = await saveBook.mutateAsync(variables)
+      if (onConflict && imageError?.status === 412) {
+        // El PATCH ya se aplicó; la portada se rechazó por un cambio ajeno posterior.
+        onConflict(`Los datos del libro se guardaron, pero la portada no: ${imageError.message}`)
+        return
+      }
       if (imageError) {
         toast.error(`El libro se guardó, pero no se pudo subir la imagen: ${imageError.message}`)
       } else {
