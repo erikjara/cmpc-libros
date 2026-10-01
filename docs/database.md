@@ -44,7 +44,9 @@ erDiagram
 
     books {
         uuid id PK
-        text title "índice GIN trigram"
+        text title "índice parcial (orden)"
+        text title_search "minúsculas sin tildes, GIN trigram"
+        text author_search "autor sin tildes, GIN trigram"
         uuid author_id FK "indexado"
         uuid publisher_id FK "indexado"
         uuid genre_id FK "indexado"
@@ -115,6 +117,12 @@ El modelo está en tercera forma normal:
 
 ## Índices
 
+**Búsqueda sin tildes.** `title_search` y `author_search` guardan el título y el nombre del autor
+en minúsculas y sin tildes (función `toSearchKey`; la ñ equivale a n). Las escribe la aplicación
+en cada alta y edición, y la búsqueda normaliza el término con la misma función: "garcia"
+encuentra "García Márquez". El nombre del autor se copia en el libro para que título y autor se
+busquen en una sola tabla con dos índices trigram.
+
 Los índices del listado son **parciales** (`WHERE deleted_at IS NULL`). Un índice suelto sobre
 `deleted_at` aporta poco porque casi todas las filas tienen `NULL`, y uno compuesto
 `(deleted_at, title)` todavía obliga a ordenar; el parcial es más pequeño (excluye eliminados) y
@@ -126,8 +134,8 @@ generan *drift* entre el esquema y las migraciones.
 |---|---|---|
 | `books(author_id)`, `books(publisher_id)`, `books(genre_id)` | B-tree | Filtros del listado por autor, editorial y género. |
 | `books(created_at)`, `books(title)`, `books(price)` `WHERE deleted_at IS NULL` | B-tree **parcial** | Listado ordenado: todas las consultas filtran `deleted_at IS NULL`, así que el índice solo contiene libros activos y entrega las filas ya ordenadas (`Index Scan`, sin `Sort`). |
-| `books(title)` | GIN `gin_trgm_ops` | Búsqueda `ILIKE '%texto%'` sobre el título. |
-| `authors(name)` | GIN `gin_trgm_ops` | Búsqueda `ILIKE '%texto%'` sobre el nombre del autor. |
+| `books(title_search)`, `books(author_search)` | GIN `gin_trgm_ops` | Búsqueda del listado, la exportación y la papelera: `LIKE '%texto%'` sobre el título y el autor en minúsculas y sin tildes. |
+| `authors(name)` | GIN `gin_trgm_ops` | Autocompletado de autores (`ILIKE '%texto%'`). |
 | `audit_logs(entity, entity_id)` | B-tree | Historial de un libro concreto. |
 | `audit_logs(user_id)` | B-tree | Actividad de un usuario. |
 | `audit_logs(created_at)` | B-tree | Listado de auditoría ordenado por fecha. |

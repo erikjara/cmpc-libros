@@ -189,7 +189,8 @@ regresa a la página en la que estabas.
 ### Listado de libros
 
 - **Búsqueda:** escribe en el buscador para filtrar por título o autor. La búsqueda se aplica
-  automáticamente al dejar de escribir.
+  automáticamente al dejar de escribir y no distingue mayúsculas ni tildes: "garcia" encuentra
+  "García Márquez" (la ñ equivale a n).
 - **Filtros:** género, editorial, autor y disponibilidad (todos, disponibles o agotados).
   "Limpiar filtros" vuelve al listado completo.
 - **Orden:** un clic en un encabezado ordena solo por esa columna y alterna ascendente,
@@ -266,8 +267,12 @@ haya expirado y, si recibe un token válido, invalida todos los tokens emitidos 
 **Concurrencia optimista:** las respuestas de un libro incluyen `ETag: "<updatedAt>"`. Si un
 `PATCH /api/books/:id` envía `If-Match` con ese valor y el libro cambió entretanto, la API
 responde 412 en lugar de sobrescribir. Sin `If-Match`, la última escritura prevalece (útil para
-scripts). Un `PATCH` que no cambia ningún valor no modifica el libro ni genera auditoría. Los parámetros de query no declarados se rechazan con 400, y los filtros vacíos o
-con solo espacios se tratan como ausentes.
+scripts). Un `PATCH` que no cambia ningún valor no modifica el libro ni genera auditoría. Los parámetros de query no declarados se rechazan con 400, los filtros vacíos o
+con solo espacios se tratan como ausentes y los textos con caracteres de control (como NUL) se
+rechazan con 400.
+
+La subida de portada (`POST /api/books/:id/image`) acepta el mismo `If-Match`: la interfaz lo envía
+también cuando solo cambia la imagen, así que una portada nunca sobrescribe cambios ajenos.
 
 Ejemplo con `curl`:
 
@@ -477,8 +482,8 @@ Resultado de `npm run test:cov`:
 
 | Aplicación | Tests | Sentencias | Ramas | Funciones | Líneas |
 |---|---|---|---|---|---|
-| Backend | 307 unitarios + 45 de integración | 99,33 % | 94,31 % | 98,90 % | 99,32 % |
-| Frontend | 271 | 96,64 % | 94,60 % | 96,41 % | 97,61 % |
+| Backend | 354 unitarios + 68 de integración | 99,35 % | 94,52 % | 98,94 % | 99,34 % |
+| Frontend | 277 | 96,67 % | 94,68 % | 96,42 % | 97,63 % |
 
 La cobertura se mide sobre los tests unitarios; los de integración (`npm run test:e2e`) se
 ejecutan aparte contra PostgreSQL.

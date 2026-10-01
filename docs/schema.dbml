@@ -55,6 +55,8 @@ Table genres {
 Table books {
   id uuid [pk]
   title text [not null]
+  title_search text [not null, note: 'Título en minúsculas y sin tildes (búsqueda)']
+  author_search text [not null, note: 'Nombre del autor en minúsculas y sin tildes (búsqueda)']
   author_id uuid [not null, ref: > authors.id]
   publisher_id uuid [not null, ref: > publishers.id]
   genre_id uuid [not null, ref: > genres.id]
@@ -72,7 +74,8 @@ Table books {
     created_at [name: 'books_active_created_at_idx', note: 'Parcial: WHERE deleted_at IS NULL']
     title [name: 'books_active_title_idx', note: 'Parcial: WHERE deleted_at IS NULL']
     price [name: 'books_active_price_idx', note: 'Parcial: WHERE deleted_at IS NULL']
-    title [type: gin, name: 'books_title_trgm_idx', note: 'gin_trgm_ops: búsqueda ILIKE']
+    title_search [type: gin, name: 'books_title_search_trgm_idx', note: 'gin_trgm_ops: búsqueda sin tildes']
+    author_search [type: gin, name: 'books_author_search_trgm_idx', note: 'gin_trgm_ops: búsqueda sin tildes']
   }
 }
 
