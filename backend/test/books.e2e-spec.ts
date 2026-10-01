@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import request from 'supertest';
 import {
@@ -777,6 +777,60 @@ describe('API de libros (e2e)', () => {
       await expect(auditTotal(book.id)).resolves.toBe(2);
     });
 
+    it('imagen con If-Match obsoleto responde 412: la portada anterior se conserva y no queda archivo nuevo', async () => {
+      const book = await createBook();
+      const withCover = await api()
+        .post(`/api/books/${book.id}/image`)
+        .set('Cookie', cookie)
+        .attach('image', JPEG_BYTES, 'portada.jpg')
+        .expect(200);
+      const seen = withCover.body.data as BookBody;
+      // Otra persona cambia el título después de que se abrió la edición.
+      const changed = await api()
+        .patch(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .send({ title: 'Título cambiado por otra persona' })
+        .expect(200);
+      const uploadsDir = process.env.UPLOADS_DIR ?? '';
+      const filesBefore = readdirSync(uploadsDir).sort();
+      const auditsBefore = await auditTotal(book.id);
+
+      const { body } = await api()
+        .post(`/api/books/${book.id}/image`)
+        .set('Cookie', cookie)
+        .set('If-Match', etagOf(seen))
+        .attach('image', PNG_BYTES, 'portada.png')
+        .expect(412);
+
+      expect(body).toMatchObject({ statusCode: 412, message: BOOK_MODIFIED });
+      const current = await api()
+        .get(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(current.body.data.imageUrl).toBe(seen.imageUrl);
+      expect(current.body.data.updatedAt).toBe(changed.body.data.updatedAt);
+      await api().get(seen.imageUrl!).expect(200);
+      expect(readdirSync(uploadsDir).sort()).toEqual(filesBefore);
+      await expect(auditTotal(book.id)).resolves.toBe(auditsBefore);
+    });
+
+    it('imagen con If-Match vigente responde 200 con una versión y un ETag nuevos', async () => {
+      const book = await createBook();
+
+      const response = await api()
+        .post(`/api/books/${book.id}/image`)
+        .set('Cookie', cookie)
+        .set('If-Match', etagOf(book))
+        .attach('image', JPEG_BYTES, 'portada.jpg')
+        .expect(200);
+
+      const updated = response.body.data as BookBody;
+      expect(updated.imageUrl).toMatch(/\.jpg$/);
+      expect(updated.updatedAt > book.updatedAt).toBe(true);
+      expect(response.headers.etag).toBe(etagOf(updated));
+      expect(response.headers.etag).not.toBe(etagOf(book));
+    });
+
     it('CORS expone ETag y Swagger documenta If-Match y el 412', async () => {
       const book = await createBook();
       const response = await api()
@@ -799,6 +853,13 @@ describe('API de libros (e2e)', () => {
       );
       expect(patch.responses['412']).toBeDefined();
       expect(patch.responses['200'].headers.ETag).toBeDefined();
+      const image = body.paths['/api/books/{id}/image'].post;
+      expect(image.parameters).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'If-Match', in: 'header' }),
+        ]),
+      );
+      expect(image.responses['412']).toBeDefined();
     });
   });
 

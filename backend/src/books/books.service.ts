@@ -217,10 +217,16 @@ export class BooksService {
     });
   }
 
+  /**
+   * Sube o reemplaza la imagen con el mismo bloqueo optimista que `update`: con
+   * `If-Match` distinto del `updatedAt` vigente responde 412 sin conservar el archivo
+   * nuevo ni borrar el anterior. Cambiar la imagen crea una versión nueva del libro.
+   */
   async setImage(
     id: string,
     file: UploadedImage,
     context: RequestContext,
+    ifMatch?: IfMatchCondition,
   ): Promise<BookDto> {
     const extension = detectImageType(file.buffer);
     if (!extension) {
@@ -228,21 +234,62 @@ export class BooksService {
         'Formato de imagen no permitido: usa JPEG, PNG o WebP',
       );
     }
-    // Chequeo previo para no escribir archivos de libros inexistentes.
-    if (!(await this.repository.findActiveById(id))) {
+    // Chequeo previo para no escribir archivos de libros inexistentes o ya modificados.
+    const existing = await this.repository.findActiveById(id);
+    if (!existing) {
       throw new NotFoundException(BOOK_NOT_FOUND);
+    }
+    if (!matchesIfMatch(ifMatch, existing.updatedAt)) {
+      throw new PreconditionFailedException(BOOK_MODIFIED);
     }
 
     const key = await this.storage.save(file.buffer, extension);
     let result: { book: BookDto; previousKey: string | null };
     try {
-      result = await this.prisma.$transaction(async (tx) => {
-        // Se repite dentro de la transacción: el libro pudo eliminarse o cambiar de imagen.
-        const current = await this.repository.findActiveById(id, tx);
-        if (!current) {
-          throw new NotFoundException(BOOK_NOT_FOUND);
-        }
-        const book = toBookDto(await this.repository.setImageKey(tx, id, key));
+      result = await this.prisma.$transaction((tx) =>
+        this.setImageInTransaction(tx, id, key, context, ifMatch),
+      );
+    } catch (error) {
+      await this.deleteQuietly(key);
+      throw error;
+    }
+
+    // La imagen anterior se borra solo después del commit.
+    if (result.previousKey) {
+      await this.deleteQuietly(result.previousKey);
+    }
+    return result.book;
+  }
+
+  private async setImageInTransaction(
+    tx: DbClient,
+    id: string,
+    key: string,
+    context: RequestContext,
+    ifMatch: IfMatchCondition | undefined,
+  ): Promise<{ book: BookDto; previousKey: string | null }> {
+    for (let attempt = 1; attempt <= MAX_UPDATE_ATTEMPTS; attempt++) {
+      // Se repite dentro de la transacción: el libro pudo eliminarse, cambiar de imagen
+      // o de versión desde el chequeo previo.
+      const current = await this.repository.findActiveById(id, tx);
+      if (!current) {
+        throw new NotFoundException(BOOK_NOT_FOUND);
+      }
+      if (!matchesIfMatch(ifMatch, current.updatedAt)) {
+        throw new PreconditionFailedException(BOOK_MODIFIED);
+      }
+      const version = nextVersion(current.updatedAt);
+      if (
+        await this.repository.lockIfUnchanged(
+          tx,
+          id,
+          current.updatedAt,
+          version,
+        )
+      ) {
+        const book = toBookDto(
+          await this.repository.setImageKey(tx, id, key, version),
+        );
         await this.audit.record(tx, {
           action: 'UPDATE',
           entity: 'Book',
@@ -254,17 +301,9 @@ export class BooksService {
           },
         });
         return { book, previousKey: current.imageKey };
-      });
-    } catch (error) {
-      await this.deleteQuietly(key);
-      throw error;
+      }
     }
-
-    // La imagen anterior se borra solo después del commit.
-    if (result.previousKey) {
-      await this.deleteQuietly(result.previousKey);
-    }
-    return result.book;
+    throw new ConflictException(BOOK_BUSY);
   }
 
   /**

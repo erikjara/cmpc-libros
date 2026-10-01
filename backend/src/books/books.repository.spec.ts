@@ -292,4 +292,16 @@ describe('BooksRepository', () => {
     await repository.setImageKey(tx, BOOK_ID, 'k.png');
     expect(tx.book.update.mock.calls[2][0].data).toEqual({ imageKey: 'k.png' });
   });
+
+  it('setImageKey con versión fija también el nuevo updatedAt', async () => {
+    tx.book.update.mockResolvedValue(makeBook());
+    const version = new Date('2026-09-03T10:00:00.000Z');
+
+    await repository.setImageKey(tx, BOOK_ID, 'k.png', version);
+
+    expect(tx.book.update.mock.calls[0][0].data).toEqual({
+      imageKey: 'k.png',
+      updatedAt: version,
+    });
+  });
 });

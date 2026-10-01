@@ -533,10 +533,17 @@ describe('BooksService', () => {
       const result = await service.setImage(BOOK_ID, file, REQUEST_CONTEXT);
 
       expect(storage.save).toHaveBeenCalledWith(JPEG_BYTES, 'jpg');
+      expect(repository.lockIfUnchanged).toHaveBeenCalledWith(
+        tx,
+        BOOK_ID,
+        makeBook().updatedAt,
+        expect.any(Date),
+      );
       expect(repository.setImageKey).toHaveBeenCalledWith(
         tx,
         BOOK_ID,
         'new.jpg',
+        repository.lockIfUnchanged.mock.calls[0][3],
       );
       expect(audit.record).toHaveBeenCalledWith(tx, {
         action: 'UPDATE',
@@ -652,6 +659,126 @@ describe('BooksService', () => {
         }),
       );
       expect(order).toEqual(['commit', 'delete:current.jpg']);
+    });
+
+    describe('con If-Match', () => {
+      const v1 = makeBook({ imageKey: 'old.jpg' });
+      const v2 = makeBook({
+        title: 'Otro título',
+        imageKey: 'old.jpg',
+        updatedAt: new Date('2026-09-03T10:00:00.000Z'),
+      });
+      const ifMatchV1 = () => parseIfMatch(`"${v1.updatedAt.toISOString()}"`);
+
+      it('vigente: guarda la imagen con una versión nueva posterior a la anterior', async () => {
+        repository.findActiveById.mockResolvedValue(v1);
+        storage.save.mockResolvedValue('new.jpg');
+        repository.setImageKey.mockImplementation(
+          async (_db, _id, imageKey, version) =>
+            makeBook({ imageKey, updatedAt: version }),
+        );
+
+        const result = await service.setImage(
+          BOOK_ID,
+          file,
+          REQUEST_CONTEXT,
+          ifMatchV1(),
+        );
+
+        const version = repository.lockIfUnchanged.mock.calls[0][3];
+        expect(version.getTime()).toBeGreaterThan(v1.updatedAt.getTime());
+        expect(result.updatedAt).toBe(version.toISOString());
+        expect(result.imageUrl).toBe('/api/uploads/new.jpg');
+        expect(storage.delete).toHaveBeenCalledExactlyOnceWith('old.jpg');
+      });
+
+      it('obsoleto antes de subir: 412 sin escribir el archivo ni tocar la imagen anterior', async () => {
+        repository.findActiveById.mockResolvedValue(v2);
+
+        const promise = service.setImage(
+          BOOK_ID,
+          file,
+          REQUEST_CONTEXT,
+          ifMatchV1(),
+        );
+
+        await expect(promise).rejects.toThrow(PreconditionFailedException);
+        await expect(promise).rejects.toThrow(BOOK_MODIFIED);
+        expect(storage.save).not.toHaveBeenCalled();
+        expect(storage.delete).not.toHaveBeenCalled();
+        expect(repository.setImageKey).not.toHaveBeenCalled();
+        expect(audit.record).not.toHaveBeenCalled();
+      });
+
+      it('si el libro cambia tras escribir el archivo: 412, borra solo el archivo nuevo y no audita', async () => {
+        repository.findActiveById
+          .mockResolvedValueOnce(v1)
+          .mockResolvedValueOnce(v2);
+        storage.save.mockResolvedValue('new.jpg');
+
+        await expect(
+          service.setImage(BOOK_ID, file, REQUEST_CONTEXT, ifMatchV1()),
+        ).rejects.toThrow(BOOK_MODIFIED);
+
+        expect(repository.lockIfUnchanged).not.toHaveBeenCalled();
+        expect(repository.setImageKey).not.toHaveBeenCalled();
+        expect(audit.record).not.toHaveBeenCalled();
+        expect(storage.delete).toHaveBeenCalledExactlyOnceWith('new.jpg');
+      });
+
+      it('si otra transacción escribe entre la lectura y el bloqueo: relee y responde 412', async () => {
+        repository.findActiveById
+          .mockResolvedValueOnce(v1)
+          .mockResolvedValueOnce(v1)
+          .mockResolvedValueOnce(v2);
+        repository.lockIfUnchanged.mockResolvedValueOnce(false);
+        storage.save.mockResolvedValue('new.jpg');
+
+        await expect(
+          service.setImage(BOOK_ID, file, REQUEST_CONTEXT, ifMatchV1()),
+        ).rejects.toThrow(PreconditionFailedException);
+
+        expect(repository.setImageKey).not.toHaveBeenCalled();
+        expect(storage.delete).toHaveBeenCalledExactlyOnceWith('new.jpg');
+      });
+    });
+
+    it('sin If-Match, si otra transacción escribe entre la lectura y el bloqueo, relee y gana la última escritura', async () => {
+      const v2 = makeBook({ updatedAt: new Date('2026-09-03T10:00:00.000Z') });
+      repository.findActiveById
+        .mockResolvedValueOnce(makeBook())
+        .mockResolvedValueOnce(makeBook())
+        .mockResolvedValueOnce(v2);
+      repository.lockIfUnchanged
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+      storage.save.mockResolvedValue('new.jpg');
+      repository.setImageKey.mockResolvedValue(
+        makeBook({ imageKey: 'new.jpg' }),
+      );
+
+      await service.setImage(BOOK_ID, file, REQUEST_CONTEXT);
+
+      expect(repository.lockIfUnchanged).toHaveBeenLastCalledWith(
+        tx,
+        BOOK_ID,
+        v2.updatedAt,
+        expect.any(Date),
+      );
+      expect(repository.setImageKey).toHaveBeenCalledOnce();
+    });
+
+    it('responde 409 y borra el archivo nuevo si el libro cambia en cada intento', async () => {
+      repository.findActiveById.mockResolvedValue(makeBook());
+      repository.lockIfUnchanged.mockResolvedValue(false);
+      storage.save.mockResolvedValue('new.jpg');
+
+      await expect(
+        service.setImage(BOOK_ID, file, REQUEST_CONTEXT),
+      ).rejects.toThrow(ConflictException);
+      expect(repository.lockIfUnchanged).toHaveBeenCalledTimes(3);
+      expect(repository.setImageKey).not.toHaveBeenCalled();
+      expect(storage.delete).toHaveBeenCalledExactlyOnceWith('new.jpg');
     });
 
     it('no falla si no puede borrar la imagen anterior', async () => {
