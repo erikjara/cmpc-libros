@@ -44,6 +44,11 @@ describe('parseBookSearchParams', () => {
     expect(state).toMatchObject({ page: 1, limit: 10, available: undefined, sorting: [] })
   })
 
+  it('descarta páginas mayores al máximo que acepta la API', () => {
+    expect(parseBookSearchParams(new URLSearchParams('page=1000000')).page).toBe(1_000_000)
+    expect(parseBookSearchParams(new URLSearchParams('page=1000001')).page).toBe(1)
+  })
+
   it('lee todos los parámetros', () => {
     const state = parseBookSearchParams(
       new URLSearchParams('page=3&limit=20&search=neruda&genreId=g1&authorId=a1&publisherId=p1&available=false&sort=price:desc'),

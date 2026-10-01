@@ -6,9 +6,11 @@ import type {
   BookInput,
   BookListQuery,
   PaginatedResponse,
+  TrashedBook,
+  TrashListQuery,
 } from '@/lib/api-types'
 
-export function toQueryString(params: BookListQuery | BookFilters): string {
+export function toQueryString(params: BookListQuery | BookFilters | TrashListQuery): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== '') search.set(key, String(value))
@@ -18,6 +20,11 @@ export function toQueryString(params: BookListQuery | BookFilters): string {
 
 export async function fetchBooks(query: BookListQuery): Promise<PaginatedResponse<Book[]>> {
   const response = await httpClient.get<PaginatedResponse<Book[]>>(`/books?${toQueryString(query)}`)
+  return response.data
+}
+
+export async function fetchTrash(query: TrashListQuery): Promise<PaginatedResponse<TrashedBook[]>> {
+  const response = await httpClient.get<PaginatedResponse<TrashedBook[]>>(`/books/trash?${toQueryString(query)}`)
   return response.data
 }
 
@@ -40,6 +47,11 @@ export async function updateBook(id: string, input: Partial<BookInput>, expected
 
 export async function deleteBook(id: string): Promise<void> {
   await httpClient.delete(`/books/${id}`)
+}
+
+export async function restoreBook(id: string): Promise<Book> {
+  const response = await httpClient.post<ApiResponse<Book>>(`/books/${id}/restore`)
+  return response.data.data
 }
 
 export async function uploadBookImage(id: string, file: File): Promise<Book> {

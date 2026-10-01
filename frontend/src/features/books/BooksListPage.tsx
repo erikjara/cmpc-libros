@@ -5,13 +5,15 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getErrorMessage } from '@/lib/api-error'
 import { EmptyState } from '@/shared/EmptyState'
+import { ListPagination } from '@/shared/ListPagination'
 import { QueryError } from '@/shared/QueryError'
 import { buildExportUrl } from './books.api'
 import { useBooksQuery } from './books.queries'
 import { BooksFilters } from './BooksFilters'
-import { BooksPagination } from './BooksPagination'
 import { BooksTable } from './BooksTable'
 import { useBookSearchParams } from './useBookSearchParams'
+
+const BOOK_NOUN = ['libro', 'libros'] as const
 
 function BooksTableSkeleton() {
   return (
@@ -111,7 +113,7 @@ export function BooksListPage() {
       )}
 
       {result && result.meta.total > 0 && (
-        <BooksPagination meta={result.meta} onPageChange={setPage} onLimitChange={setLimit} />
+        <ListPagination meta={result.meta} onPageChange={setPage} onLimitChange={setLimit} noun={BOOK_NOUN} />
       )}
     </section>
   )

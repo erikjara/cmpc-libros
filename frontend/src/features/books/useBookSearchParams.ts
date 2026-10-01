@@ -2,10 +2,9 @@ import type { SortingState } from '@tanstack/react-table'
 import { useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router'
 import type { BookFilters, BookListQuery } from '@/lib/api-types'
+import { DEFAULT_PAGE_SIZE, MAX_PAGE, parsePositiveInt } from '@/shared/pagination'
 import { parseSort, serializeSort } from './sort'
 
-export const DEFAULT_PAGE_SIZE = 10
-export const PAGE_SIZE_OPTIONS = [10, 20, 50] as const
 const MAX_SEARCH_LENGTH = 100
 
 export type AvailabilityFilter = 'true' | 'false'
@@ -26,11 +25,6 @@ export interface BookSearchState extends BookFilterValues {
 
 const FILTER_KEYS = ['search', 'authorId', 'publisherId', 'genreId', 'available'] as const
 
-function parsePositiveInt(raw: string | null, fallback: number, max = Number.MAX_SAFE_INTEGER): number {
-  const value = Number(raw)
-  return Number.isInteger(value) && value >= 1 && value <= max ? value : fallback
-}
-
 function optional(raw: string | null): string | undefined {
   return raw ? raw : undefined
 }
@@ -38,7 +32,7 @@ function optional(raw: string | null): string | undefined {
 export function parseBookSearchParams(params: URLSearchParams): BookSearchState {
   const available = params.get('available')
   return {
-    page: parsePositiveInt(params.get('page'), 1),
+    page: parsePositiveInt(params.get('page'), 1, MAX_PAGE),
     limit: parsePositiveInt(params.get('limit'), DEFAULT_PAGE_SIZE, 100),
     search: (params.get('search') ?? '').slice(0, MAX_SEARCH_LENGTH),
     authorId: optional(params.get('authorId')),

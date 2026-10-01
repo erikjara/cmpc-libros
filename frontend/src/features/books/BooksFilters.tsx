@@ -1,15 +1,14 @@
 import { SearchIcon } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useCatalogOptions } from '@/features/catalog/catalog.queries'
 import { CatalogFilterCombobox } from '@/features/catalog/CatalogFilterCombobox'
-import { useDebounce } from '@/shared/useDebounce'
+import { useDebouncedSearch } from '@/shared/useDebouncedSearch'
 import type { AvailabilityFilter, BookFilterValues } from './useBookSearchParams'
 
-export const SEARCH_DEBOUNCE_MS = 400
+export { SEARCH_DEBOUNCE_MS } from '@/shared/useDebouncedSearch'
 const ALL = 'all'
 
 const AVAILABILITY_ITEMS = [
@@ -26,30 +25,8 @@ interface BooksFiltersProps {
 }
 
 export function BooksFilters({ values, onChange, onClear, hasActiveFilters }: BooksFiltersProps) {
-  const [searchText, setSearchText] = useState(values.search)
-  const debouncedSearch = useDebounce(searchText, SEARCH_DEBOUNCE_MS)
-  const committedSearch = useRef(values.search)
-  const onChangeRef = useRef(onChange)
+  const [searchText, setSearchText] = useDebouncedSearch(values.search, (search) => onChange({ search }))
   const { data: genres = [] } = useCatalogOptions('genres', '')
-
-  useLayoutEffect(() => {
-    onChangeRef.current = onChange
-  })
-
-  // La URL puede cambiar desde fuera (atrás/adelante, "Limpiar filtros"): se sincroniza el input.
-  useEffect(() => {
-    if (values.search !== committedSearch.current) {
-      committedSearch.current = values.search
-      setSearchText(values.search)
-    }
-  }, [values.search])
-
-  useEffect(() => {
-    if (debouncedSearch !== committedSearch.current) {
-      committedSearch.current = debouncedSearch
-      onChangeRef.current({ search: debouncedSearch })
-    }
-  }, [debouncedSearch])
 
   const genreItems = [{ value: ALL, label: 'Todos los géneros' }, ...genres.map((g) => ({ value: g.id, label: g.name }))]
 
