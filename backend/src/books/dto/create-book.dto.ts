@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsInt, IsNumber, IsString, Length, Max, Min } from 'class-validator';
-import { trimString } from '../../common/transforms/string.transforms.js';
+import { normalizeSpaces } from '../../common/transforms/string.transforms.js';
 
 export const MAX_PRICE = 99_999_999.99;
 export const MAX_STOCK = 1_000_000;
@@ -12,7 +12,7 @@ export class CreateBookDto {
     minLength: 1,
     maxLength: 200,
   })
-  @Transform(trimString)
+  @Transform(normalizeSpaces)
   @IsString({ message: 'El título es obligatorio' })
   @Length(1, 200, { message: 'El título debe tener entre 1 y 200 caracteres' })
   title: string;
@@ -21,7 +21,7 @@ export class CreateBookDto {
     example: 'Isabel Allende',
     description: 'Se reutiliza si existe; si no, se crea',
   })
-  @Transform(trimString)
+  @Transform(normalizeSpaces)
   @IsString({ message: 'El autor es obligatorio' })
   @Length(1, 120, { message: 'El autor debe tener entre 1 y 120 caracteres' })
   authorName: string;
@@ -30,7 +30,7 @@ export class CreateBookDto {
     example: 'Sudamericana',
     description: 'Se reutiliza si existe; si no, se crea',
   })
-  @Transform(trimString)
+  @Transform(normalizeSpaces)
   @IsString({ message: 'La editorial es obligatoria' })
   @Length(1, 120, {
     message: 'La editorial debe tener entre 1 y 120 caracteres',
@@ -41,7 +41,7 @@ export class CreateBookDto {
     example: 'Realismo mágico',
     description: 'Se reutiliza si existe; si no, se crea',
   })
-  @Transform(trimString)
+  @Transform(normalizeSpaces)
   @IsString({ message: 'El género es obligatorio' })
   @Length(1, 120, { message: 'El género debe tener entre 1 y 120 caracteres' })
   genreName: string;

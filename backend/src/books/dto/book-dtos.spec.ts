@@ -37,6 +37,38 @@ describe('CreateBookDto', () => {
     ).toBe('Rayuela');
   });
 
+  it('colapsa espacios internos en título y nombres de catálogo', () => {
+    const dto = plainToInstance(CreateBookDto, {
+      ...validBook,
+      title: ' Rayuela \n  (edición   crítica) ',
+      authorName: '  Julio   Cortázar ',
+      publisherName: 'Alfaguara\t\tEditores',
+      genreName: 'Novela\n corta',
+    });
+    expect(dto).toMatchObject({
+      title: 'Rayuela (edición crítica)',
+      authorName: 'Julio Cortázar',
+      publisherName: 'Alfaguara Editores',
+      genreName: 'Novela corta',
+    });
+  });
+
+  it('rechaza nombres de catálogo con solo espacios en blanco', async () => {
+    const errors = await errorsFor(CreateBookDto, {
+      ...validBook,
+      authorName: ' \t ',
+      publisherName: '\n',
+      genreName: '   ',
+    });
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        'El autor debe tener entre 1 y 120 caracteres',
+        'La editorial debe tener entre 1 y 120 caracteres',
+        'El género debe tener entre 1 y 120 caracteres',
+      ]),
+    );
+  });
+
   it('rechaza título en blanco, precio con 3 decimales y stock negativo o decimal', async () => {
     const errors = await errorsFor(CreateBookDto, {
       ...validBook,
