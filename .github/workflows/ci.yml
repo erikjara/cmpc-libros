@@ -16,7 +16,7 @@ concurrency:
 jobs:
   backend:
     name: Backend · lint, tipos y tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: backend
@@ -46,7 +46,7 @@ jobs:
 
   backend-e2e:
     name: Backend · integración contra PostgreSQL
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: backend
@@ -82,7 +82,7 @@ jobs:
 
   frontend:
     name: Frontend · lint, tipos y tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
@@ -107,7 +107,7 @@ jobs:
 
   docker:
     name: Docker · build y arranque del stack
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Preparar variables de entorno de demo
