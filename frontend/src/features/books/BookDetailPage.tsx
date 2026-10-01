@@ -27,9 +27,9 @@ export function BookDetailPage() {
 
   if (bookQuery.isPending) {
     return (
-      <div data-testid="book-skeleton" role="status" className="grid gap-6 md:grid-cols-[240px_1fr]">
+      <div data-testid="book-skeleton" role="status" className="grid gap-6 md:grid-cols-[240px_minmax(0,1fr)]">
         <span className="sr-only">Cargando…</span>
-        <Skeleton className="aspect-[2/3] w-full" />
+        <Skeleton className="mx-auto aspect-[2/3] w-full max-w-60 md:max-w-none" />
         <div className="flex flex-col gap-3">
           <Skeleton className="h-8 w-2/3" />
           <Skeleton className="h-5 w-1/3" />
@@ -79,14 +79,14 @@ export function BookDetailPage() {
         <ArrowLeftIcon data-icon="inline-start" />
         Volver al listado
       </Link>
-      <div className="grid gap-6 md:grid-cols-[240px_1fr]">
+      <div className="grid gap-6 md:grid-cols-[240px_minmax(0,1fr)]">
         {book.imageUrl ? (
-          <img src={book.imageUrl} alt={`Portada de ${book.title}`} className="aspect-[2/3] w-full rounded-lg object-cover" />
+          <img src={book.imageUrl} alt={`Portada de ${book.title}`} className="mx-auto aspect-[2/3] w-full max-w-60 rounded-lg object-cover md:max-w-none" />
         ) : (
           <div
             role="img"
             aria-label="Sin portada"
-            className="flex aspect-[2/3] w-full items-center justify-center rounded-lg bg-muted text-muted-foreground"
+            className="mx-auto flex aspect-[2/3] w-full max-w-60 items-center justify-center rounded-lg bg-muted text-muted-foreground md:max-w-none"
           >
             <BookIcon className="size-12" aria-hidden />
           </div>
@@ -94,13 +94,13 @@ export function BookDetailPage() {
         <Card>
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h1 className="text-2xl font-semibold">{book.title}</h1>
+              <div className="min-w-0">
+                <h1 className="text-2xl font-semibold break-words">{book.title}</h1>
                 <p className="text-muted-foreground">{book.author.name}</p>
               </div>
               <AvailabilityBadge stock={book.stock} />
             </div>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2 text-sm break-words">
               <dt className="text-muted-foreground">Editorial</dt>
               <dd>{book.publisher.name}</dd>
               <dt className="text-muted-foreground">Género</dt>
@@ -114,7 +114,7 @@ export function BookDetailPage() {
               <dt className="text-muted-foreground">Actualizado</dt>
               <dd>{formatDateTime(book.updatedAt)}</dd>
             </dl>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Link to={`/books/${book.id}/edit`} className={buttonVariants()}>
                 <PencilIcon data-icon="inline-start" />
                 Editar

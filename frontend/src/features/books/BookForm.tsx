@@ -110,7 +110,7 @@ export function BookForm({ defaultValues = emptyBookForm, currentImageUrl, submi
         </div>
         <ImagePicker currentImageUrl={currentImageUrl} onFileChange={setImage} />
       </FieldGroup>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={!isValid || isSubmitting}>
           {isSubmitting ? 'Guardando…' : submitLabel}
         </Button>

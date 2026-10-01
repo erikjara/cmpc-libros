@@ -33,7 +33,7 @@ export function BooksListPage() {
     <section className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Libros</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <a href={buildExportUrl(filters)} download className={buttonVariants({ variant: 'outline' })}>
             <DownloadIcon data-icon="inline-start" />
             Exportar CSV

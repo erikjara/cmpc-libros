@@ -39,13 +39,13 @@ export function ImagePicker({ currentImageUrl = null, onFileChange }: ImagePicke
       </label>
       <div className="flex items-start gap-4">
         {shownUrl ? (
-          <img src={shownUrl} alt="Vista previa de la portada" className="h-36 w-24 rounded-md object-cover" />
+          <img src={shownUrl} alt="Vista previa de la portada" className="h-36 w-24 shrink-0 rounded-md object-cover" />
         ) : (
-          <div className="flex h-36 w-24 items-center justify-center rounded-md bg-muted text-muted-foreground">
+          <div className="flex h-36 w-24 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
             <ImageIcon className="size-8" aria-hidden />
           </div>
         )}
-        <div className="flex flex-col gap-2">
+        <div className="flex min-w-0 flex-col gap-2">
           <input
             ref={inputRef}
             id={inputId}
@@ -53,7 +53,7 @@ export function ImagePicker({ currentImageUrl = null, onFileChange }: ImagePicke
             accept={ALLOWED_IMAGE_TYPES.join(',')}
             aria-invalid={Boolean(error)}
             aria-describedby={`${inputId}-hint`}
-            className="text-sm file:mr-3 file:rounded-md file:border file:bg-background file:px-3 file:py-1"
+            className="max-w-full text-sm file:mr-3 file:rounded-md file:border file:bg-background file:px-3 file:py-1"
             onChange={(event) => {
               const selected = event.target.files?.[0]
               if (!selected) return
