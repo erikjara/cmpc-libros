@@ -20,6 +20,24 @@ operación.
   sesión, registrada en la misma transacción que el cambio.
 - **API REST documentada** con Swagger.
 
+## Capturas
+
+Listado con búsqueda, filtros, orden por varias columnas y paginación:
+
+![Listado de libros con filtros y orden por varias columnas](docs/images/listado.png)
+
+| Inicio de sesión | Detalle de un libro |
+|---|---|
+| ![Pantalla de inicio de sesión](docs/images/login.png) | ![Detalle de un libro con portada](docs/images/detalle.png) |
+
+| Alta con portada | Confirmación de eliminación |
+|---|---|
+| ![Formulario de alta con vista previa de la portada](docs/images/formulario.png) | ![Diálogo de confirmación de eliminación](docs/images/eliminar.png) |
+
+Documentación interactiva de la API:
+
+![Swagger de la API](docs/images/swagger.png)
+
 ## Stack
 
 | Capa | Tecnología |
@@ -377,6 +395,15 @@ Exclusiones de cobertura y su motivo:
 | Backend | Cliente generado de Prisma | Código generado por la herramienta. |
 | Frontend | `src/components/ui/**` | Componentes generados por el CLI de shadcn. |
 | Frontend | `main.tsx` | Punto de montaje de React. |
+
+### Cobertura actual
+
+Resultado de `npm run test:cov` en la versión 1.0.0 (2026-10-01):
+
+| Aplicación | Sentencias | Ramas | Funciones | Líneas |
+|---|---|---|---|---|
+| Backend | 99,20 % | 92,36 % | 98,72 % | 99,19 % |
+| Frontend | 95,97 % | 92,97 % | 96,03 % | 96,81 % |
 
 ## Integración continua
 
