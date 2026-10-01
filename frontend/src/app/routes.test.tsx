@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { createMemoryRouter } from 'react-router'
+import { createMemoryRouter, type RouteObject } from 'react-router'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { httpClient } from '@/lib/http-client'
 import { db } from '@/test/msw/db'
@@ -27,6 +27,27 @@ function renderApp(initialEntry: string) {
   installSessionExpiredHandler(utils.queryClient, utils.router)
   return utils
 }
+
+function flattenRoutes(routes: RouteObject[]): RouteObject[] {
+  return routes.flatMap((route) => [route, ...flattenRoutes(route.children ?? [])])
+}
+
+describe('división de código', () => {
+  it.each(['/login', 'books/new', 'books/:id', 'books/:id/edit', 'trash', 'audit'])(
+    'la ruta %s carga su componente con lazy',
+    (path) => {
+      const route = flattenRoutes(createRoutes(createTestQueryClient())).find((item) => item.path === path)
+      expect(route?.lazy).toBeDefined()
+      expect(route?.element).toBeUndefined()
+    },
+  )
+
+  it('el listado y el layout quedan en el bundle principal', () => {
+    const routes = flattenRoutes(createRoutes(createTestQueryClient()))
+    expect(routes.find((item) => item.path === 'books')?.element).toBeDefined()
+    expect(routes.find((item) => item.path === '/')?.element).toBeDefined()
+  })
+})
 
 describe('rutas de la aplicación', () => {
   it('redirige / a /books y muestra el layout con el usuario', async () => {
