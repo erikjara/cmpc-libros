@@ -513,6 +513,43 @@ GitHub Actions (`.github/workflows/ci.yml`) se ejecuta en cada push y en cada pu
 | Frontend | `npm ci`, lint, typecheck, tests con cobertura |
 | Docker | valida `docker-compose.yml`, construye las imágenes, levanta el stack, espera los healthchecks y consulta `/api/health` y una ruta de la SPA a través de nginx |
 
+## Desarrollo asistido por IA
+
+Este proyecto se desarrolló con **Claude Code** (Anthropic) como asistente de programación. La
+herramienta escribió buena parte del código y de los tests; el diseño, las decisiones y la
+verificación de cada entrega fueron responsabilidad del autor. El flujo fue:
+
+1. **Requisitos y diseño.** Análisis de los requisitos y redacción de la spec (`docs/design.md`):
+   modelo de datos, endpoints, arquitectura y supuestos, revisados y aprobados sección por sección
+   antes de escribir código.
+2. **Versiones vigentes.** Antes de planificar se verificaron las versiones actuales de cada
+   librería contra npm y la documentación oficial (por ejemplo, que `npm i prisma` instalaba una
+   release candidate de Prisma 8 y que TypeScript 7 aún no es compatible con `@nestjs/swagger`).
+3. **Contrato de API y trabajo en paralelo.** Un contrato interno (rutas, formatos JSON, errores,
+   cookie, scripts) permitió desarrollar backend, frontend e infraestructura en paralelo, cada
+   área en su propia rama y con TDD. Por eso el historial muestra commits de varias áreas
+   intercalados en poco tiempo, integrados con merges. El contrato y los planes fueron notas de
+   trabajo locales; su contenido vigente está en esta documentación y en Swagger.
+4. **Revisión independiente.** Cada rama pasó por una revisión de código separada de quien la
+   implementó, y sus hallazgos se corrigieron antes de integrar.
+5. **Verificación contra el sistema real.** Smoke tests de la API y recorridos en el navegador
+   sobre el stack de Docker Compose, además de la CI.
+6. **Auditorías y recorte de alcance.** Revisiones contra los requisitos y de alcance: lo que no
+   aportaba se quitó (por ejemplo, un `TimeoutInterceptor` que respondía 503 sin cancelar la
+   consulta en curso).
+7. **Evaluaciones externas simuladas.** Revisiones completas desde un clon limpio, con pruebas
+   adversas. Encontraron defectos reales que se corrigieron con un test del escenario exacto,
+   por ejemplo que la edición podía sobrescribir cambios ajenos cuando el formulario mostraba
+   datos de una caché vieja.
+
+**Decisiones del autor**, no de la herramienta: el stack y la arquitectura, la sesión en cookie
+`httpOnly` en lugar de `localStorage`, shadcn sobre Base UI y TanStack Table en lugar de MUI,
+disponibilidad derivada del stock, qué hallazgos de cada revisión corregir o aceptar, y qué
+recortar del alcance.
+
+Las convenciones que siguen tanto las personas como los asistentes de IA están en
+[`CLAUDE.md`](CLAUDE.md).
+
 ## Roadmap
 
 Evoluciones previstas para próximas versiones, con su diseño propuesto:
@@ -553,5 +590,6 @@ Evoluciones previstas para próximas versiones, con su diseño propuesto:
 ├── .github/workflows/       CI
 ├── docker-compose.yml
 ├── .env.example
+├── CLAUDE.md                convenciones del proyecto (personas y asistentes de IA)
 └── README.md
 ```
