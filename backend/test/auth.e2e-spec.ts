@@ -7,7 +7,7 @@ interface RegisteredRoute {
   path: string;
 }
 
-/** Rutas públicas según el contrato (§4 y enmienda 1). */
+/** Rutas públicas de la API registradas en el router (login, logout y health). */
 const PUBLIC_ROUTES = new Set([
   'POST /api/auth/login',
   'POST /api/auth/logout',

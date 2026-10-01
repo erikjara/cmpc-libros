@@ -13,6 +13,7 @@ import {
 import { AuditLogsRepository } from '../src/audit/audit-logs.repository.js';
 import { EXPORT_BATCH_SIZE } from '../src/books/books-export.service.js';
 import { BooksRepository } from '../src/books/books.repository.js';
+import { BooksService } from '../src/books/books.service.js';
 import { makeBook } from '../src/testing/book-fixtures.js';
 import { JPEG_BYTES, PNG_BYTES } from '../src/testing/image-fixtures.js';
 import { createE2eApp, login, type E2eApp } from './support/e2e-app.js';
@@ -22,10 +23,15 @@ interface BookBody {
   title: string;
   imageUrl: string | null;
   author: { id: string; name: string };
+  stock: number;
+  updatedAt: string;
 }
 
+const BOOK_MODIFIED =
+  'El libro fue modificado por otra persona. Recarga para ver la versión actual.';
+
 const CSV_HEADER =
-  'ID,Título,Autor,Editorial,Género,Precio,Stock,Disponible,Creado';
+  'ID;Título;Autor;Editorial;Género;Precio;Stock;Disponible;Creado';
 
 describe('API de libros (e2e)', () => {
   let ctx: E2eApp;
@@ -220,6 +226,25 @@ describe('API de libros (e2e)', () => {
     expect(body.data).toEqual([]);
   });
 
+  it('responde 503 con el formato de error si el handler supera REQUEST_TIMEOUT_MS', async () => {
+    vi.spyOn(ctx.app.get(BooksService), 'list').mockReturnValueOnce(
+      new Promise(() => undefined),
+    );
+
+    const { body } = await api()
+      .get('/api/books')
+      .set('Cookie', cookie)
+      .expect(503);
+
+    expect(body).toMatchObject({
+      statusCode: 503,
+      error: 'Service Unavailable',
+      message: 'La solicitud tardó demasiado',
+      path: '/api/books',
+      requestId: expect.any(String),
+    });
+  });
+
   it('rechaza con 400 una página demasiado grande', async () => {
     const { body } = await api()
       .get('/api/books?page=1000001')
@@ -280,6 +305,193 @@ describe('API de libros (e2e)', () => {
     await expect(
       ctx.prisma.author.count({ where: { name: 'Autor concurrente' } }),
     ).resolves.toBe(1);
+  });
+
+  describe('bloqueo optimista (ETag / If-Match)', () => {
+    const etagOf = (book: BookBody) => `"${book.updatedAt}"`;
+
+    async function auditTotal(id: string): Promise<number> {
+      const { body } = await api()
+        .get(`/api/audit-logs?entity=Book&entityId=${id}`)
+        .set('Cookie', cookie)
+        .expect(200);
+      return body.meta.total as number;
+    }
+
+    it('detalle, alta, edición, restauración e imagen responden ETag con el updatedAt', async () => {
+      const created = await api()
+        .post('/api/books')
+        .set('Cookie', cookie)
+        .send({
+          title: 'Libro versionado',
+          authorName: 'Autor e2e',
+          publisherName: 'Editorial e2e',
+          genreName: 'Género e2e',
+          price: 1000,
+          stock: 1,
+        })
+        .expect(201);
+      const book = created.body.data as BookBody;
+      expect(created.headers.etag).toBe(etagOf(book));
+
+      const detail = await api()
+        .get(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(detail.headers.etag).toBe(etagOf(detail.body.data));
+
+      const patched = await api()
+        .patch(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .send({ stock: 4 })
+        .expect(200);
+      expect(patched.headers.etag).toBe(etagOf(patched.body.data));
+      expect(patched.headers.etag).not.toBe(created.headers.etag);
+
+      const image = await api()
+        .post(`/api/books/${book.id}/image`)
+        .set('Cookie', cookie)
+        .attach('image', JPEG_BYTES, 'portada.jpg')
+        .expect(200);
+      expect(image.headers.etag).toBe(etagOf(image.body.data));
+
+      await api()
+        .delete(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .expect(204);
+      const restored = await api()
+        .post(`/api/books/${book.id}/restore`)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(restored.headers.etag).toBe(etagOf(restored.body.data));
+    });
+
+    it('PATCH con If-Match vigente actualiza; con uno obsoleto responde 412 sin cambiar ni auditar', async () => {
+      const book = await createBook({ stock: 1 });
+      const first = await api()
+        .patch(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .set('If-Match', etagOf(book))
+        .send({ stock: 2 })
+        .expect(200);
+      expect(first.body.data.stock).toBe(2);
+      const auditsBefore = await auditTotal(book.id);
+
+      // Otra persona editó con la versión que ya no es la vigente.
+      const { body } = await api()
+        .patch(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .set('If-Match', etagOf(book))
+        .send({ stock: 9 })
+        .expect(412);
+
+      expect(body).toMatchObject({
+        statusCode: 412,
+        error: 'Precondition Failed',
+        message: BOOK_MODIFIED,
+        path: `/api/books/${book.id}`,
+        requestId: expect.any(String),
+      });
+      const current = await api()
+        .get(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(current.body.data.stock).toBe(2);
+      expect(current.body.data.updatedAt).toBe(first.body.data.updatedAt);
+      await expect(auditTotal(book.id)).resolves.toBe(auditsBefore);
+    });
+
+    it('PATCH sin If-Match sigue funcionando (gana la última escritura)', async () => {
+      const book = await createBook({ stock: 1 });
+      await api()
+        .patch(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .send({ stock: 2 })
+        .expect(200);
+      const { body } = await api()
+        .patch(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .send({ stock: 3 })
+        .expect(200);
+      expect(body.data.stock).toBe(3);
+    });
+
+    it('PATCH sin cambios efectivos responde 200 sin tocar updatedAt ni auditar', async () => {
+      const book = await createBook({ title: 'Sin cambios', stock: 5 });
+      const auditsBefore = await auditTotal(book.id);
+
+      const response = await api()
+        .patch(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .set('If-Match', etagOf(book))
+        .send({ title: 'Sin cambios', stock: 5, price: 1000 })
+        .expect(200);
+
+      expect(response.body.data.updatedAt).toBe(book.updatedAt);
+      expect(response.headers.etag).toBe(etagOf(book));
+      await expect(auditTotal(book.id)).resolves.toBe(auditsBefore);
+    });
+
+    it('PATCH con If-Match sobre un libro eliminado responde 404', async () => {
+      const book = await createBook();
+      await api()
+        .delete(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .expect(204);
+      await api()
+        .patch(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .set('If-Match', etagOf(book))
+        .send({ stock: 3 })
+        .expect(404);
+    });
+
+    it('dos ediciones simultáneas con la misma versión: una gana y la otra recibe 412', async () => {
+      const book = await createBook({ stock: 1 });
+      const responses = await Promise.all(
+        [7, 8].map((stock) =>
+          api()
+            .patch(`/api/books/${book.id}`)
+            .set('Cookie', cookie)
+            .set('If-Match', etagOf(book))
+            .send({ stock }),
+        ),
+      );
+      expect(responses.map((r) => r.status).sort((a, b) => a - b)).toEqual([
+        200, 412,
+      ]);
+      const winner = responses.find((r) => r.status === 200)!;
+      const { body } = await api()
+        .get(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(body.data.stock).toBe(winner.body.data.stock);
+      await expect(auditTotal(book.id)).resolves.toBe(2);
+    });
+
+    it('CORS expone ETag y Swagger documenta If-Match y el 412', async () => {
+      const book = await createBook();
+      const response = await api()
+        .get(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .set('Origin', 'http://localhost:5173')
+        .expect(200);
+      expect(response.headers['access-control-expose-headers']).toBe('ETag');
+
+      const { body } = await api().get('/api/docs/openapi.json').expect(200);
+      const patch = body.paths['/api/books/{id}'].patch;
+      expect(patch.parameters).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'If-Match',
+            in: 'header',
+            required: false,
+          }),
+        ]),
+      );
+      expect(patch.responses['412']).toBeDefined();
+      expect(patch.responses['200'].headers.ETag).toBeDefined();
+    });
   });
 
   describe('imagen', () => {
@@ -347,8 +559,12 @@ describe('API de libros (e2e)', () => {
   });
 
   describe('exportación CSV', () => {
-    it('entrega BOM, encabezados del contrato y los libros filtrados', async () => {
-      await createBook({ title: 'Exportable, con "comillas"', stock: 0 });
+    it('entrega CSV para Excel es-CL: BOM, ";" como separador, coma decimal y los libros filtrados', async () => {
+      await createBook({
+        title: 'Exportable; con "comillas", y coma',
+        price: 15990.5,
+        stock: 0,
+      });
       const response = await api()
         .get('/api/books/export?search=Exportable')
         .set('Cookie', cookie)
@@ -362,8 +578,12 @@ describe('API de libros (e2e)', () => {
       expect(response.text.startsWith(`﻿${CSV_HEADER}\n`)).toBe(true);
       const lines = response.text.trim().split('\n');
       expect(lines).toHaveLength(2);
-      expect(lines[1]).toContain('"Exportable, con ""comillas"""');
-      expect(lines[1]).toContain(',No,');
+      expect(lines[1]).toContain('"Exportable; con ""comillas"", y coma"');
+      const fields = lines[1].split(';');
+      expect(fields.slice(-4, -1)).toEqual(['15990,50', '0', 'No']);
+      expect(fields.at(-1)).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+      );
     });
 
     it('si la base falla al comenzar responde 500 con el formato de error, sin filtrar el detalle', async () => {

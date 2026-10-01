@@ -3,6 +3,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import * as argon2 from 'argon2';
 import { Prisma, PrismaClient } from '../src/generated/prisma/client.js';
 import { SEED_BOOKS } from './seed-data.js';
+import { parseSeedDemoData, shouldSeedDemoBooks } from './seed-options.js';
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -36,7 +37,41 @@ async function upsertByName(
   return ids;
 }
 
+async function seedDemoBooks(prisma: PrismaClient): Promise<string> {
+  const authors = await upsertByName(
+    prisma,
+    'author',
+    SEED_BOOKS.map((b) => b.author),
+  );
+  const publishers = await upsertByName(
+    prisma,
+    'publisher',
+    SEED_BOOKS.map((b) => b.publisher),
+  );
+  const genres = await upsertByName(
+    prisma,
+    'genre',
+    SEED_BOOKS.map((b) => b.genre),
+  );
+
+  const { count } = await prisma.book.createMany({
+    data: SEED_BOOKS.map((book) => ({
+      title: book.title,
+      authorId: authors.get(book.author)!,
+      publisherId: publishers.get(book.publisher)!,
+      genreId: genres.get(book.genre)!,
+      price: new Prisma.Decimal(book.price),
+      stock: book.stock,
+    })),
+  });
+  return (
+    `${count} libros de demostración, ${authors.size} autores, ` +
+    `${publishers.size} editoriales, ${genres.size} géneros`
+  );
+}
+
 async function main(): Promise<void> {
+  const demoData = parseSeedDemoData(process.env.SEED_DEMO_DATA);
   const prisma = new PrismaClient({
     adapter: new PrismaPg({ connectionString: requireEnv('DATABASE_URL') }),
   });
@@ -55,49 +90,15 @@ async function main(): Promise<void> {
       update: {},
     });
 
-    const authors = await upsertByName(
-      prisma,
-      'author',
-      SEED_BOOKS.map((b) => b.author),
-    );
-    const publishers = await upsertByName(
-      prisma,
-      'publisher',
-      SEED_BOOKS.map((b) => b.publisher),
-    );
-    const genres = await upsertByName(
-      prisma,
-      'genre',
-      SEED_BOOKS.map((b) => b.genre),
-    );
+    // count() del modelo no filtra eliminados: cuenta todas las filas de books.
+    const existingBooks = await prisma.book.count();
+    const books = shouldSeedDemoBooks(demoData, existingBooks)
+      ? await seedDemoBooks(prisma)
+      : demoData
+        ? `sin libros de demostración (la tabla books ya tiene ${existingBooks} filas)`
+        : 'sin libros de demostración (SEED_DEMO_DATA=false)';
 
-    let created = 0;
-    for (const book of SEED_BOOKS) {
-      const authorId = authors.get(book.author)!;
-      const exists = await prisma.book.findFirst({
-        where: { title: book.title, authorId },
-        select: { id: true },
-      });
-      if (exists) {
-        continue;
-      }
-      await prisma.book.create({
-        data: {
-          title: book.title,
-          authorId,
-          publisherId: publishers.get(book.publisher)!,
-          genreId: genres.get(book.genre)!,
-          price: new Prisma.Decimal(book.price),
-          stock: book.stock,
-        },
-      });
-      created += 1;
-    }
-
-    console.log(
-      `Seed completado: admin ${email}, ${authors.size} autores, ${publishers.size} editoriales, ` +
-        `${genres.size} géneros, ${created} libros nuevos (${SEED_BOOKS.length} en el catálogo semilla).`,
-    );
+    console.log(`Seed completado: admin ${email}; ${books}.`);
   } finally {
     await prisma.$disconnect();
   }

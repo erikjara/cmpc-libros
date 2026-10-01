@@ -4,6 +4,10 @@ import { BadRequestException, Logger, StreamableFile } from '@nestjs/common';
 import type { Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
+import { INTERCEPTORS_METADATA } from '@nestjs/common/constants.js';
+import { Reflector } from '@nestjs/core';
+import { ETagInterceptor } from '../common/interceptors/etag.interceptor.js';
+import { NO_TIMEOUT_KEY } from '../common/decorators/no-timeout.decorator.js';
 import { PaginatedResult } from '../common/pagination/pagination.js';
 import {
   BOOK_ID,
@@ -42,6 +46,56 @@ describe('BooksController', () => {
     controller = new BooksController(books, exporter);
   });
 
+  it('excluye del límite de tiempo solo la exportación y la subida de imagen', () => {
+    const reflector = new Reflector();
+    const prototype = BooksController.prototype as unknown as Record<
+      string,
+      () => unknown
+    >;
+    const exempt = Object.getOwnPropertyNames(prototype).filter(
+      (name) =>
+        name !== 'constructor' &&
+        reflector.get<boolean>(NO_TIMEOUT_KEY, prototype[name]),
+    );
+    expect(exempt.sort()).toEqual(['export', 'uploadImage']);
+  });
+
+  it('update interpreta el header If-Match y lo pasa al service', async () => {
+    books.update.mockResolvedValue(dto);
+    await controller.update(
+      BOOK_ID,
+      { stock: 2 },
+      REQUEST_CONTEXT,
+      '"2026-09-30T23:58:12.345Z"',
+    );
+    expect(books.update).toHaveBeenCalledWith(
+      BOOK_ID,
+      { stock: 2 },
+      REQUEST_CONTEXT,
+      { any: false, tags: ['2026-09-30T23:58:12.345Z'] },
+    );
+  });
+
+  it('agrega ETag a detalle, alta, edición, restauración e imagen', () => {
+    const prototype = BooksController.prototype as unknown as Record<
+      string,
+      () => unknown
+    >;
+    const withETag = Object.getOwnPropertyNames(prototype).filter((name) =>
+      (
+        (Reflect.getMetadata(INTERCEPTORS_METADATA, prototype[name]) ??
+          []) as unknown[]
+      ).includes(ETagInterceptor),
+    );
+    expect(withETag.sort()).toEqual([
+      'create',
+      'findOne',
+      'restore',
+      'update',
+      'uploadImage',
+    ]);
+  });
+
   it('list delega la query al service', async () => {
     const page = new PaginatedResult([dto], {
       page: 1,
@@ -64,7 +118,7 @@ describe('BooksController', () => {
 
     await controller.findOne(BOOK_ID);
     await controller.create(BOOK_INPUT, REQUEST_CONTEXT);
-    await controller.update(BOOK_ID, { stock: 2 }, REQUEST_CONTEXT);
+    await controller.update(BOOK_ID, { stock: 2 }, REQUEST_CONTEXT, undefined);
     await controller.remove(BOOK_ID, REQUEST_CONTEXT);
     await controller.restore(BOOK_ID, REQUEST_CONTEXT);
 
@@ -74,6 +128,7 @@ describe('BooksController', () => {
       BOOK_ID,
       { stock: 2 },
       REQUEST_CONTEXT,
+      undefined,
     );
     expect(books.remove).toHaveBeenCalledWith(BOOK_ID, REQUEST_CONTEXT);
     expect(books.restore).toHaveBeenCalledWith(BOOK_ID, REQUEST_CONTEXT);

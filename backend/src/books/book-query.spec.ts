@@ -44,7 +44,7 @@ describe('parseSort', () => {
 });
 
 describe('SORT_PATTERN', () => {
-  it('coincide con la expresión del contrato', () => {
+  it('coincide con la expresión documentada de la API', () => {
     expect(SORT_PATTERN.source).toBe(
       '^(title|price|stock|createdAt|author|publisher|genre):(asc|desc)(,(title|price|stock|createdAt|author|publisher|genre):(asc|desc))*$',
     );

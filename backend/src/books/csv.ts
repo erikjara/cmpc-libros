@@ -1,4 +1,8 @@
+import type { Prisma } from '../generated/prisma/client.js';
 import type { BookWithRelations } from './books.repository.js';
+
+/** Excel con configuración regional es-CL usa `;` como separador de listas. */
+export const CSV_DELIMITER = ';';
 
 export const CSV_COLUMNS = [
   { key: 'id', header: 'ID' },
@@ -21,6 +25,13 @@ export function neutralizeFormula(value: string): string {
   return FORMULA_PREFIX.test(value) ? `'${value}` : value;
 }
 
+/** Coma decimal y sin separador de miles: `15990,50`; los enteros sin decimales: `15990`. */
+export function formatPrice(price: Prisma.Decimal): string {
+  return price.isInteger()
+    ? price.toFixed(0)
+    : price.toFixed(2).replace('.', ',');
+}
+
 export function toCsvRow(book: BookWithRelations): CsvRow {
   return {
     id: book.id,
@@ -28,7 +39,7 @@ export function toCsvRow(book: BookWithRelations): CsvRow {
     author: neutralizeFormula(book.author.name),
     publisher: neutralizeFormula(book.publisher.name),
     genre: neutralizeFormula(book.genre.name),
-    price: book.price.toFixed(2),
+    price: formatPrice(book.price),
     stock: String(book.stock),
     available: book.stock > 0 ? 'Sí' : 'No',
     createdAt: book.createdAt.toISOString(),

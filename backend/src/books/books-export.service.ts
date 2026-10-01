@@ -11,7 +11,7 @@ import {
   type BookQuery,
 } from './book-query.js';
 import { BooksRepository, type BookWithRelations } from './books.repository.js';
-import { CSV_COLUMNS, toCsvRow, type CsvRow } from './csv.js';
+import { CSV_COLUMNS, CSV_DELIMITER, toCsvRow, type CsvRow } from './csv.js';
 
 export const EXPORT_BATCH_SIZE = 500;
 
@@ -27,7 +27,7 @@ export class BooksExportService {
 
   /**
    * Valida filtros, lee el primer lote, registra EXPORT y devuelve un stream CSV (BOM
-   * UTF-8) que sigue leyendo por lotes, sin cargar todo el inventario en memoria.
+   * UTF-8, `;` como separador) que sigue leyendo por lotes, sin cargar todo el inventario en memoria.
    * El primer lote se lee antes de responder: si la base falla, el error llega al filtro
    * global como un 500 con el formato de error de la API, en vez de un CSV vacío.
    */
@@ -48,6 +48,7 @@ export class BooksExportService {
     const csv = stringify({
       header: true,
       bom: true,
+      delimiter: CSV_DELIMITER,
       columns: [...CSV_COLUMNS],
     });
     // Un error de un lote posterior destruye `csv` con ese mismo error y lo maneja quien

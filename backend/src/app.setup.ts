@@ -67,6 +67,8 @@ export function configureApp(app: NestExpressApplication): void {
   app.enableCors({
     origin: config.get('CORS_ORIGIN', { infer: true }),
     credentials: true,
+    // El frontend lee el ETag para editar con If-Match (bloqueo optimista).
+    exposedHeaders: ['ETag'],
   });
   app.setGlobalPrefix(API_PREFIX);
   app.useStaticAssets(uploadsDir, {

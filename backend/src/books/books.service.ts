@@ -1,11 +1,14 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
   NotFoundException,
+  PreconditionFailedException,
 } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
+import { matchesIfMatch, type IfMatchCondition } from '../common/http/etag.js';
 import {
   buildPaginationMeta,
   PaginatedResult,
@@ -13,12 +16,14 @@ import {
 } from '../common/pagination/pagination.js';
 import type { RequestContext } from '../common/types/request-context.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { DbClient } from '../prisma/prisma.types.js';
 import { detectImageType } from '../storage/image-type.js';
 import {
   STORAGE_SERVICE,
   type StorageService,
   type UploadedImage,
 } from '../storage/storage.service.js';
+import { hasEffectiveChanges } from './book-changes.js';
 import { buildBookQuery } from './book-query.js';
 import { toBookDto, type BookDto } from './book.mapper.js';
 import { BooksRepository, type BookInput } from './books.repository.js';
@@ -26,6 +31,18 @@ import { isCatalogNameConflict } from './catalog-conflict.js';
 import type { BookListQueryDto } from './dto/book-list-query.dto.js';
 
 export const BOOK_NOT_FOUND = 'Libro no encontrado';
+export const BOOK_MODIFIED =
+  'El libro fue modificado por otra persona. Recarga para ver la versión actual.';
+export const BOOK_BUSY =
+  'El libro se está modificando en este momento; intenta nuevamente.';
+
+/** Relecturas ante escrituras concurrentes antes de responder 409. */
+const MAX_UPDATE_ATTEMPTS = 3;
+
+/** Versión siguiente: estrictamente posterior a la actual aunque el reloj no avance. */
+function nextVersion(current: Date): Date {
+  return new Date(Math.max(Date.now(), current.getTime() + 1));
+}
 
 @Injectable()
 export class BooksService {
@@ -75,10 +92,16 @@ export class BooksService {
     );
   }
 
+  /**
+   * Edición parcial con bloqueo optimista opcional: con `If-Match` distinto del
+   * `updatedAt` vigente responde 412; sin él gana la última escritura. Un PATCH sin
+   * cambios efectivos devuelve el libro sin tocar `updatedAt` ni auditar.
+   */
   update(
     id: string,
     input: Partial<BookInput>,
     context: RequestContext,
+    ifMatch?: IfMatchCondition,
   ): Promise<BookDto> {
     if (Object.values(input).every((value) => value === undefined)) {
       throw new BadRequestException(
@@ -86,12 +109,44 @@ export class BooksService {
       );
     }
     return this.retryOnCatalogRace(() =>
-      this.prisma.$transaction(async (tx) => {
-        const current = await this.repository.findActiveById(id, tx);
-        if (!current) {
-          throw new NotFoundException(BOOK_NOT_FOUND);
-        }
-        const updated = toBookDto(await this.repository.update(tx, id, input));
+      this.prisma.$transaction((tx) =>
+        this.updateInTransaction(tx, id, input, context, ifMatch),
+      ),
+    );
+  }
+
+  private async updateInTransaction(
+    tx: DbClient,
+    id: string,
+    input: Partial<BookInput>,
+    context: RequestContext,
+    ifMatch: IfMatchCondition | undefined,
+  ): Promise<BookDto> {
+    for (let attempt = 1; attempt <= MAX_UPDATE_ATTEMPTS; attempt++) {
+      const current = await this.repository.findActiveById(id, tx);
+      if (!current) {
+        throw new NotFoundException(BOOK_NOT_FOUND);
+      }
+      if (!matchesIfMatch(ifMatch, current.updatedAt)) {
+        throw new PreconditionFailedException(BOOK_MODIFIED);
+      }
+      if (!hasEffectiveChanges(current, input)) {
+        return toBookDto(current);
+      }
+      const version = nextVersion(current.updatedAt);
+      // Falla si otra transacción cambió el libro tras la lectura: se relee y se
+      // vuelve a evaluar (con If-Match, la versión ya no coincide → 412).
+      if (
+        await this.repository.lockIfUnchanged(
+          tx,
+          id,
+          current.updatedAt,
+          version,
+        )
+      ) {
+        const updated = toBookDto(
+          await this.repository.update(tx, id, input, version),
+        );
         await this.audit.record(tx, {
           action: 'UPDATE',
           entity: 'Book',
@@ -100,8 +155,9 @@ export class BooksService {
           changes: { before: toBookDto(current), after: updated },
         });
         return updated;
-      }),
-    );
+      }
+    }
+    throw new ConflictException(BOOK_BUSY);
   }
 
   async remove(id: string, context: RequestContext): Promise<void> {

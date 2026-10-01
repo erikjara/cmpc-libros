@@ -2,6 +2,7 @@ generator client {
   provider            = "prisma-client"
   output              = "../src/generated/prisma"
   importFileExtension = "js"
+  previewFeatures     = ["partialIndexes"]
 }
 
 datasource db {
@@ -68,9 +69,11 @@ model Book {
   @@index([authorId])
   @@index([publisherId])
   @@index([genreId])
-  @@index([deletedAt])
-  @@index([price])
-  @@index([createdAt])
+  // Índices parciales: el listado siempre filtra deleted_at IS NULL y ordena por estas
+  // columnas; un índice compuesto (deleted_at, col) solo sirve de filtro, no de orden.
+  @@index([createdAt], where: { deletedAt: null }, map: "books_active_created_at_idx")
+  @@index([title], where: { deletedAt: null }, map: "books_active_title_idx")
+  @@index([price], where: { deletedAt: null }, map: "books_active_price_idx")
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "books_title_trgm_idx")
   @@map("books")
 }
