@@ -10,6 +10,8 @@ export function makeBook(
   return {
     id: BOOK_ID,
     title: 'La casa de los espíritus',
+    titleSearch: 'la casa de los espiritus',
+    authorSearch: 'isabel allende',
     authorId: 'a1',
     publisherId: 'p1',
     genreId: 'g1',

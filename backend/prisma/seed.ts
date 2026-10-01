@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import * as argon2 from 'argon2';
+import { toSearchKey } from '../src/common/search/search-key.js';
 import { Prisma, PrismaClient } from '../src/generated/prisma/client.js';
 import { SEED_BOOKS } from './seed-data.js';
 import { parseSeedDemoData, shouldSeedDemoBooks } from './seed-options.js';
@@ -57,6 +58,8 @@ async function seedDemoBooks(prisma: PrismaClient): Promise<string> {
   const { count } = await prisma.book.createMany({
     data: SEED_BOOKS.map((book) => ({
       title: book.title,
+      titleSearch: toSearchKey(book.title),
+      authorSearch: toSearchKey(book.author),
       authorId: authors.get(book.author)!,
       publisherId: publishers.get(book.publisher)!,
       genreId: genres.get(book.genre)!,

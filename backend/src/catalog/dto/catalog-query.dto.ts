@@ -9,6 +9,7 @@ import {
   Min,
 } from 'class-validator';
 import { trimToUndefined } from '../../common/transforms/string.transforms.js';
+import { NoControlChars } from '../../common/validation/no-control-chars.validator.js';
 
 export class CatalogQueryDto {
   @ApiPropertyOptional({
@@ -19,6 +20,7 @@ export class CatalogQueryDto {
   @IsOptional()
   @Transform(trimToUndefined)
   @IsString({ message: 'search debe ser texto' })
+  @NoControlChars('search')
   @MaxLength(100, { message: 'search no puede superar 100 caracteres' })
   search?: string;
 

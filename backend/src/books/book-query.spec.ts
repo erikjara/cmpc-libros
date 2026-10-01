@@ -69,19 +69,19 @@ describe('buildBookQuery', () => {
     });
   });
 
-  it('search busca en título y autor sin distinguir mayúsculas', () => {
-    const { where } = buildBookQuery({ search: 'Allende' });
+  it('search busca en título y autor sin distinguir mayúsculas ni tildes', () => {
+    const { where } = buildBookQuery({ search: 'García' });
     expect(where.OR).toEqual([
-      { title: { contains: 'Allende', mode: 'insensitive' } },
-      { author: { name: { contains: 'Allende', mode: 'insensitive' } } },
+      { titleSearch: { contains: 'garcia' } },
+      { authorSearch: { contains: 'garcia' } },
     ]);
   });
 
   it('search con comodines los busca literalmente', () => {
     const { where } = buildBookQuery({ search: '50%' });
     expect(where.OR).toEqual([
-      { title: { contains: '50\\%', mode: 'insensitive' } },
-      { author: { name: { contains: '50\\%', mode: 'insensitive' } } },
+      { titleSearch: { contains: '50\\%' } },
+      { authorSearch: { contains: '50\\%' } },
     ]);
   });
 
@@ -129,13 +129,18 @@ describe('buildBookQuery', () => {
 describe('searchCondition', () => {
   it('sin texto no agrega condición', () => {
     expect(searchCondition(undefined)).toEqual({});
+    expect(searchCondition('')).toEqual({});
   });
 
-  it('busca en título y autor, con comodines escapados', () => {
-    expect(searchCondition('50%')).toEqual({
+  it('tampoco si el término queda vacío al normalizarlo (solo marcas diacríticas)', () => {
+    expect(searchCondition('\u0301\u0308')).toEqual({});
+  });
+
+  it('busca la clave normalizada en title_search y author_search, con comodines escapados', () => {
+    expect(searchCondition('  SEPÚLVEDA_50% ')).toEqual({
       OR: [
-        { title: { contains: '50\\%', mode: 'insensitive' } },
-        { author: { name: { contains: '50\\%', mode: 'insensitive' } } },
+        { titleSearch: { contains: 'sepulveda\\_50\\%' } },
+        { authorSearch: { contains: 'sepulveda\\_50\\%' } },
       ],
     });
   });

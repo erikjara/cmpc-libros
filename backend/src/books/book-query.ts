@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { toSearchKey } from '../common/search/search-key.js';
 import type { Prisma } from '../generated/prisma/client.js';
 
 export const SORT_FIELDS = [
@@ -86,17 +87,19 @@ export function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
-/** Búsqueda ILIKE en título y autor; sin texto no agrega condición. */
+/**
+ * Búsqueda en título y autor sin distinguir mayúsculas ni tildes: compara la clave del
+ * término (`toSearchKey`) con `books.title_search` / `books.author_search`, que ya están en
+ * minúsculas, mediante LIKE (índices GIN trigram). Sin texto no agrega condición.
+ */
 export function searchCondition(search?: string): Prisma.BookWhereInput {
-  if (!search) {
+  const key = search ? toSearchKey(search) : '';
+  if (!key) {
     return {};
   }
-  const contains = escapeLike(search);
+  const contains = escapeLike(key);
   return {
-    OR: [
-      { title: { contains, mode: 'insensitive' } },
-      { author: { name: { contains, mode: 'insensitive' } } },
-    ],
+    OR: [{ titleSearch: { contains } }, { authorSearch: { contains } }],
   };
 }
 

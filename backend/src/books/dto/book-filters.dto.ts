@@ -9,17 +9,20 @@ import {
   Matches,
 } from 'class-validator';
 import { trimToUndefined } from '../../common/transforms/string.transforms.js';
+import { NoControlChars } from '../../common/validation/no-control-chars.validator.js';
 import { SORT_PATTERN } from '../book-query.js';
 
 export class BookFiltersDto {
   @ApiPropertyOptional({
-    description: 'Texto a buscar en título y autor',
+    description:
+      'Texto a buscar en título y autor (sin distinguir mayúsculas ni tildes)',
     maxLength: 100,
     example: 'allende',
   })
   @IsOptional()
   @Transform(trimToUndefined)
   @IsString({ message: 'search debe ser texto' })
+  @NoControlChars('search')
   @Length(1, 100, { message: 'search debe tener entre 1 y 100 caracteres' })
   search?: string;
 

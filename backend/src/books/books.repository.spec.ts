@@ -62,16 +62,20 @@ describe('BooksRepository', () => {
       expect(prisma.book.count).toHaveBeenCalledWith({ where });
     });
 
-    it('busca en título y autor con los comodines escapados', async () => {
+    it('busca en título y autor sin tildes y con los comodines escapados', async () => {
       prisma.$transaction.mockResolvedValue([[], 0] as never);
 
-      await repository.findTrashPage({ search: '100%', skip: 0, take: 10 });
+      await repository.findTrashPage({
+        search: 'Ñuñoa 100%',
+        skip: 0,
+        take: 10,
+      });
 
       const where = {
         deletedAt: { not: null },
         OR: [
-          { title: { contains: '100\\%', mode: 'insensitive' } },
-          { author: { name: { contains: '100\\%', mode: 'insensitive' } } },
+          { titleSearch: { contains: 'nunoa 100\\%' } },
+          { authorSearch: { contains: 'nunoa 100\\%' } },
         ],
       };
       expect(prisma.book.findMany).toHaveBeenCalledWith(
@@ -205,6 +209,9 @@ describe('BooksRepository', () => {
       expect(args.data.author).toEqual({ connect: { id: 'a2' } });
       expect(args.data.publisher).toEqual({ connect: { id: 'p2' } });
       expect(args.data.genre).toEqual({ connect: { id: 'g2' } });
+      expect(args.data.title).toBe('La casa de los espíritus');
+      expect(args.data.titleSearch).toBe('la casa de los espiritus');
+      expect(args.data.authorSearch).toBe('isabel allende');
       expect(args.data.price).toBeInstanceOf(Prisma.Decimal);
       expect((args.data.price as Prisma.Decimal).toFixed(2)).toBe('15990.50');
       expect(args.include).toEqual(BOOK_INCLUDE);
@@ -276,8 +283,19 @@ describe('BooksRepository', () => {
     await repository.update(tx, BOOK_ID, BOOK_INPUT);
     const { data } = tx.book.update.mock.calls[0][0];
     expect(Object.keys(data).sort()).toEqual(
-      ['author', 'genre', 'price', 'publisher', 'stock', 'title'].sort(),
+      [
+        'author',
+        'authorSearch',
+        'genre',
+        'price',
+        'publisher',
+        'stock',
+        'title',
+        'titleSearch',
+      ].sort(),
     );
+    expect(data.titleSearch).toBe('la casa de los espiritus');
+    expect(data.authorSearch).toBe('isabel allende');
   });
 
   it('softDelete marca deletedAt, restore lo limpia y setImageKey guarda la clave', async () => {
