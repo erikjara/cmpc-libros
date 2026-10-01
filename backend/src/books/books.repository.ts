@@ -98,10 +98,29 @@ export class BooksRepository {
     });
   }
 
+  /**
+   * Update condicional para bloqueo optimista: escribe `version` en `updatedAt` solo si
+   * el libro sigue activo y con la versión leída. Si otra transacción lo modificó, no
+   * actualiza ninguna fila (`false`); si no, la fila queda bloqueada hasta el commit.
+   */
+  async lockIfUnchanged(
+    db: DbClient,
+    id: string,
+    expectedUpdatedAt: Date,
+    version: Date,
+  ): Promise<boolean> {
+    const { count } = await db.book.updateMany({
+      where: { id, deletedAt: null, updatedAt: expectedUpdatedAt },
+      data: { updatedAt: version },
+    });
+    return count === 1;
+  }
+
   update(
     db: DbClient,
     id: string,
     input: Partial<BookInput>,
+    version?: Date,
   ): Promise<BookWithRelations> {
     const data: Prisma.BookUpdateInput = {};
     if (input.title !== undefined) data.title = input.title;
@@ -113,6 +132,7 @@ export class BooksRepository {
       data.publisher = connectOrCreateByName(input.publisherName);
     if (input.genreName !== undefined)
       data.genre = connectOrCreateByName(input.genreName);
+    if (version) data.updatedAt = version;
     return db.book.update({ where: { id }, data, include: BOOK_INCLUDE });
   }
 

@@ -1,4 +1,9 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  PreconditionFailedException,
+} from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   mock,
@@ -7,6 +12,7 @@ import {
   type MockProxy,
 } from 'vitest-mock-extended';
 import type { AuditService } from '../audit/audit.service.js';
+import { parseIfMatch } from '../common/http/etag.js';
 import { PaginatedResult } from '../common/pagination/pagination.js';
 import { Prisma } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
@@ -20,7 +26,7 @@ import {
 import { JPEG_BYTES } from '../testing/image-fixtures.js';
 import { toBookDto } from './book.mapper.js';
 import type { BooksRepository } from './books.repository.js';
-import { BooksService } from './books.service.js';
+import { BOOK_MODIFIED, BooksService } from './books.service.js';
 import type { BookListQueryDto } from './dto/book-list-query.dto.js';
 
 function uniqueViolation(modelName: string, table: string) {
@@ -54,6 +60,7 @@ describe('BooksService', () => {
     repository = mock<BooksRepository>();
     audit = mock<AuditService>();
     storage = mock<StorageService>();
+    repository.lockIfUnchanged.mockResolvedValue(true);
     service = new BooksService(prisma, repository, audit, storage);
   });
 
@@ -236,9 +243,18 @@ describe('BooksService', () => {
       );
 
       expect(repository.findActiveById).toHaveBeenCalledWith(BOOK_ID, tx);
-      expect(repository.update).toHaveBeenCalledWith(tx, BOOK_ID, {
-        stock: 10,
-      });
+      expect(repository.lockIfUnchanged).toHaveBeenCalledWith(
+        tx,
+        BOOK_ID,
+        before.updatedAt,
+        expect.any(Date),
+      );
+      expect(repository.update).toHaveBeenCalledWith(
+        tx,
+        BOOK_ID,
+        { stock: 10 },
+        repository.lockIfUnchanged.mock.calls[0][3],
+      );
       expect(audit.record).toHaveBeenCalledWith(tx, {
         action: 'UPDATE',
         entity: 'Book',
@@ -255,6 +271,147 @@ describe('BooksService', () => {
         service.update(BOOK_ID, { stock: 1 }, REQUEST_CONTEXT),
       ).rejects.toThrow(NotFoundException);
       expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('responde 404 (no 412) si el libro no existe aunque venga If-Match', async () => {
+      repository.findActiveById.mockResolvedValue(null);
+      await expect(
+        service.update(
+          BOOK_ID,
+          { stock: 1 },
+          REQUEST_CONTEXT,
+          parseIfMatch('"2026-01-01T00:00:00.000Z"'),
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('con If-Match igual al updatedAt actual actualiza', async () => {
+      repository.findActiveById.mockResolvedValue(makeBook());
+      repository.update.mockResolvedValue(makeBook({ stock: 10 }));
+
+      const result = await service.update(
+        BOOK_ID,
+        { stock: 10 },
+        REQUEST_CONTEXT,
+        parseIfMatch('"2026-09-02T10:00:00.000Z"'),
+      );
+
+      expect(result.stock).toBe(10);
+      expect(audit.record).toHaveBeenCalledOnce();
+    });
+
+    it('con If-Match distinto responde 412 con el mensaje de conflicto, sin escribir ni auditar', async () => {
+      repository.findActiveById.mockResolvedValue(makeBook());
+
+      const promise = service.update(
+        BOOK_ID,
+        { stock: 10 },
+        REQUEST_CONTEXT,
+        parseIfMatch('"2026-09-01T10:00:00.000Z"'),
+      );
+
+      await expect(promise).rejects.toThrow(PreconditionFailedException);
+      await expect(promise).rejects.toThrow(BOOK_MODIFIED);
+      expect(BOOK_MODIFIED).toBe(
+        'El libro fue modificado por otra persona. Recarga para ver la versión actual.',
+      );
+      expect(repository.lockIfUnchanged).not.toHaveBeenCalled();
+      expect(repository.update).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('sin cambios efectivos devuelve el libro actual sin escribir ni auditar', async () => {
+      repository.findActiveById.mockResolvedValue(makeBook());
+
+      const result = await service.update(
+        BOOK_ID,
+        { title: 'La casa de los espíritus', price: 15990.5, stock: 3 },
+        REQUEST_CONTEXT,
+      );
+
+      expect(result).toEqual(toBookDto(makeBook()));
+      expect(repository.lockIfUnchanged).not.toHaveBeenCalled();
+      expect(repository.update).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('la nueva versión es posterior a la anterior aunque el reloj no avance', async () => {
+      const current = makeBook();
+      vi.useFakeTimers({ now: current.updatedAt });
+      try {
+        repository.findActiveById.mockResolvedValue(current);
+        repository.update.mockResolvedValue(makeBook({ stock: 10 }));
+
+        await service.update(BOOK_ID, { stock: 10 }, REQUEST_CONTEXT);
+
+        expect(repository.lockIfUnchanged.mock.calls[0][3]).toEqual(
+          new Date(current.updatedAt.getTime() + 1),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    describe('si otra transacción modificó el libro entre la lectura y la escritura', () => {
+      const v1 = makeBook();
+      const v2 = makeBook({
+        stock: 7,
+        updatedAt: new Date('2026-09-03T10:00:00.000Z'),
+      });
+
+      beforeEach(() => {
+        repository.findActiveById
+          .mockResolvedValueOnce(v1)
+          .mockResolvedValueOnce(v2);
+        repository.lockIfUnchanged
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true);
+        repository.update.mockResolvedValue(makeBook({ stock: 10 }));
+      });
+
+      it('con If-Match de la versión leída responde 412', async () => {
+        await expect(
+          service.update(
+            BOOK_ID,
+            { stock: 10 },
+            REQUEST_CONTEXT,
+            parseIfMatch(`"${v1.updatedAt.toISOString()}"`),
+          ),
+        ).rejects.toThrow(PreconditionFailedException);
+        expect(repository.update).not.toHaveBeenCalled();
+        expect(audit.record).not.toHaveBeenCalled();
+      });
+
+      it('sin If-Match relee y gana la última escritura, auditando la versión vigente', async () => {
+        await service.update(BOOK_ID, { stock: 10 }, REQUEST_CONTEXT);
+
+        expect(repository.lockIfUnchanged).toHaveBeenLastCalledWith(
+          tx,
+          BOOK_ID,
+          v2.updatedAt,
+          expect.any(Date),
+        );
+        expect(audit.record).toHaveBeenCalledWith(
+          tx,
+          expect.objectContaining({
+            changes: {
+              before: toBookDto(v2),
+              after: toBookDto(makeBook({ stock: 10 })),
+            },
+          }),
+        );
+      });
+    });
+
+    it('responde 409 si el libro cambia en cada intento', async () => {
+      repository.findActiveById.mockResolvedValue(makeBook());
+      repository.lockIfUnchanged.mockResolvedValue(false);
+
+      await expect(
+        service.update(BOOK_ID, { stock: 10 }, REQUEST_CONTEXT),
+      ).rejects.toThrow(ConflictException);
+      expect(repository.lockIfUnchanged).toHaveBeenCalledTimes(3);
+      expect(repository.update).not.toHaveBeenCalled();
     });
   });
 

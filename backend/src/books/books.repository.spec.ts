@@ -118,6 +118,35 @@ describe('BooksRepository', () => {
     expect(args.include).toEqual(BOOK_INCLUDE);
   });
 
+  it('lockIfUnchanged escribe la nueva versión solo si id, deletedAt y updatedAt coinciden', async () => {
+    const expected = new Date('2026-09-02T10:00:00.000Z');
+    const version = new Date('2026-09-03T10:00:00.000Z');
+    tx.book.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    await expect(
+      repository.lockIfUnchanged(tx, BOOK_ID, expected, version),
+    ).resolves.toBe(true);
+    expect(tx.book.updateMany).toHaveBeenCalledWith({
+      where: { id: BOOK_ID, deletedAt: null, updatedAt: expected },
+      data: { updatedAt: version },
+    });
+
+    tx.book.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(
+      repository.lockIfUnchanged(tx, BOOK_ID, expected, version),
+    ).resolves.toBe(false);
+  });
+
+  it('update fija updatedAt si recibe la versión', async () => {
+    const version = new Date('2026-09-03T10:00:00.000Z');
+    tx.book.update.mockResolvedValue(makeBook());
+    await repository.update(tx, BOOK_ID, { stock: 1 }, version);
+    expect(tx.book.update.mock.calls[0][0].data).toEqual({
+      stock: 1,
+      updatedAt: version,
+    });
+  });
+
   it('update solo envía los campos presentes', async () => {
     tx.book.update.mockResolvedValue(makeBook());
     await repository.update(tx, BOOK_ID, { stock: 0, genreName: 'Novela' });

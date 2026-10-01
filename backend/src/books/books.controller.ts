@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   Logger,
   Param,
@@ -21,6 +22,7 @@ import {
   ApiBody,
   ApiConsumes,
   ApiCookieAuth,
+  ApiHeader,
   ApiOperation,
   ApiProduces,
   ApiResponse,
@@ -28,6 +30,8 @@ import {
 } from '@nestjs/swagger';
 import { NoTimeout } from '../common/decorators/no-timeout.decorator.js';
 import { ReqContext } from '../common/decorators/request-context.decorator.js';
+import { parseIfMatch } from '../common/http/etag.js';
+import { ETagInterceptor } from '../common/interceptors/etag.interceptor.js';
 import type { PaginatedResult } from '../common/pagination/pagination.js';
 import {
   ApiDataResponse,
@@ -115,20 +119,23 @@ export class BooksController {
   }
 
   @Get(':id')
+  @UseInterceptors(ETagInterceptor)
   @ApiOperation({ summary: 'Detalle de un libro' })
-  @ApiDataResponse(BookResponseDto)
+  @ApiDataResponse(BookResponseDto, { etag: true })
   @ApiErrors(400, 404)
   findOne(@Param('id', UUID_PARAM_PIPE) id: string): Promise<BookDto> {
     return this.books.findOne(id);
   }
 
   @Post()
+  @UseInterceptors(ETagInterceptor)
   @ApiOperation({
     summary: 'Crea un libro (autor, editorial y género por nombre)',
   })
   @ApiDataResponse(BookResponseDto, {
     status: 201,
     description: 'Libro creado',
+    etag: true,
   })
   @ApiErrors(400, 409)
   create(
@@ -139,15 +146,28 @@ export class BooksController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Edición parcial (al menos un campo)' })
-  @ApiDataResponse(BookResponseDto)
-  @ApiErrors(400, 404, 409)
+  @UseInterceptors(ETagInterceptor)
+  @ApiOperation({
+    summary: 'Edición parcial (al menos un campo)',
+    description:
+      'Con `If-Match` (el `ETag` recibido) la edición falla con 412 si otra persona modificó el libro; sin él gana la última escritura. Si ningún valor cambia responde 200 con el libro actual, sin modificar `updatedAt` ni auditar.',
+  })
+  @ApiHeader({
+    name: 'If-Match',
+    required: false,
+    description:
+      'Versión esperada del libro: el `ETag` de la última lectura (`updatedAt` ISO 8601 entre comillas).',
+    schema: { type: 'string', example: '"2026-09-30T23:58:12.345Z"' },
+  })
+  @ApiDataResponse(BookResponseDto, { etag: true })
+  @ApiErrors(400, 404, 409, 412)
   update(
     @Param('id', UUID_PARAM_PIPE) id: string,
     @Body() dto: UpdateBookDto,
     @ReqContext() context: RequestContext,
+    @Headers('if-match') ifMatch: string | undefined,
   ): Promise<BookDto> {
-    return this.books.update(id, dto, context);
+    return this.books.update(id, dto, context, parseIfMatch(ifMatch));
   }
 
   @Delete(':id')
@@ -164,8 +184,9 @@ export class BooksController {
 
   @Post(':id/restore')
   @HttpCode(200)
+  @UseInterceptors(ETagInterceptor)
   @ApiOperation({ summary: 'Revierte la eliminación lógica' })
-  @ApiDataResponse(BookResponseDto)
+  @ApiDataResponse(BookResponseDto, { etag: true })
   @ApiErrors(400, 404)
   restore(
     @Param('id', UUID_PARAM_PIPE) id: string,
@@ -178,6 +199,7 @@ export class BooksController {
   @HttpCode(200)
   @NoTimeout()
   @UseInterceptors(
+    ETagInterceptor,
     FileInterceptor('image', {
       limits: { fileSize: MAX_IMAGE_BYTES, files: 1 },
     }),
@@ -193,7 +215,7 @@ export class BooksController {
       properties: { image: { type: 'string', format: 'binary' } },
     },
   })
-  @ApiDataResponse(BookResponseDto)
+  @ApiDataResponse(BookResponseDto, { etag: true })
   @ApiErrors(400, 404, 413)
   uploadImage(
     @Param('id', UUID_PARAM_PIPE) id: string,
