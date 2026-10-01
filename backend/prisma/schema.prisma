@@ -55,17 +55,23 @@ model Genre {
 }
 
 model Book {
-  id          String    @id @default(uuid()) @db.Uuid
-  title       String
-  authorId    String    @map("author_id") @db.Uuid
-  publisherId String    @map("publisher_id") @db.Uuid
-  genreId     String    @map("genre_id") @db.Uuid
-  price       Decimal   @db.Decimal(10, 2)
-  stock       Int
-  imageKey    String?   @map("image_key")
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
-  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  id           String    @id @default(uuid()) @db.Uuid
+  title        String
+  // Claves de búsqueda (toSearchKey: minúsculas, sin tildes) del título y del nombre del
+  // autor; las escribe la aplicación. author_search se copia en el libro para que el OR de la
+  // búsqueda quede en una sola tabla y use los dos índices trigram (BitmapOr); con un filtro
+  // sobre la relación, Prisma genera un LEFT JOIN que obliga a recorrer todos los libros.
+  titleSearch  String    @map("title_search")
+  authorSearch String    @map("author_search")
+  authorId     String    @map("author_id") @db.Uuid
+  publisherId  String    @map("publisher_id") @db.Uuid
+  genreId      String    @map("genre_id") @db.Uuid
+  price        Decimal   @db.Decimal(10, 2)
+  stock        Int
+  imageKey     String?   @map("image_key")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(3)
 
   author    Author    @relation(fields: [authorId], references: [id], onDelete: Restrict)
   publisher Publisher @relation(fields: [publisherId], references: [id], onDelete: Restrict)
@@ -81,7 +87,8 @@ model Book {
   @@index([price], where: { deletedAt: null }, map: "books_active_price_idx")
   // Papelera: solo indexa los eliminados (pocos) y sirve al orden deleted_at DESC.
   @@index([deletedAt(sort: Desc)], where: { deletedAt: { not: null } }, map: "books_trashed_deleted_at_idx")
-  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "books_title_trgm_idx")
+  @@index([titleSearch(ops: raw("gin_trgm_ops"))], type: Gin, map: "books_title_search_trgm_idx")
+  @@index([authorSearch(ops: raw("gin_trgm_ops"))], type: Gin, map: "books_author_search_trgm_idx")
   @@map("books")
 }
 

@@ -35,8 +35,10 @@ RUN apk add --no-cache openssl
 WORKDIR /app
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-# El seed (tsx prisma/seed.ts) importa el cliente generado desde src/generated/prisma
+# El seed (tsx prisma/seed.ts) importa el cliente generado desde src/generated/prisma y la
+# normalización de búsqueda (toSearchKey, módulo sin dependencias)
 COPY --from=build /app/src/generated ./src/generated
+COPY --from=build /app/src/common/search/search-key.ts ./src/common/search/search-key.ts
 COPY package.json prisma.config.ts ./
 COPY prisma ./prisma
 COPY --chmod=0755 docker-entrypoint.sh ./docker-entrypoint.sh

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { CatalogKind } from '../catalog/catalog.repository.js';
+import { toSearchKey } from '../common/search/search-key.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { DbClient } from '../prisma/prisma.types.js';
@@ -170,7 +171,11 @@ export class BooksRepository {
     return db.book.findUnique({ where: { id }, include: BOOK_INCLUDE });
   }
 
-  /** Las consultas van en secuencia: dentro de una transacción comparten conexión. */
+  /**
+   * Las consultas van en secuencia: dentro de una transacción comparten conexión.
+   * `authorSearch` se calcula con el nombre recibido: si el autor ya existía, su nombre
+   * guardado difiere a lo más en mayúsculas, que `toSearchKey` descarta.
+   */
   async create(db: DbClient, input: BookInput): Promise<BookWithRelations> {
     const author = await connectOrCreateByName(db, 'author', input.authorName);
     const publisher = await connectOrCreateByName(
@@ -182,6 +187,8 @@ export class BooksRepository {
     return db.book.create({
       data: {
         title: input.title,
+        titleSearch: toSearchKey(input.title),
+        authorSearch: toSearchKey(input.authorName),
         price: toDecimal(input.price),
         stock: input.stock,
         author,
@@ -217,11 +224,16 @@ export class BooksRepository {
     version?: Date,
   ): Promise<BookWithRelations> {
     const data: Prisma.BookUpdateInput = {};
-    if (input.title !== undefined) data.title = input.title;
+    if (input.title !== undefined) {
+      data.title = input.title;
+      data.titleSearch = toSearchKey(input.title);
+    }
     if (input.price !== undefined) data.price = toDecimal(input.price);
     if (input.stock !== undefined) data.stock = input.stock;
-    if (input.authorName !== undefined)
+    if (input.authorName !== undefined) {
       data.author = await connectOrCreateByName(db, 'author', input.authorName);
+      data.authorSearch = toSearchKey(input.authorName);
+    }
     if (input.publisherName !== undefined)
       data.publisher = await connectOrCreateByName(
         db,

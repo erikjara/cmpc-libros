@@ -13,7 +13,8 @@ import { SORT_PATTERN } from '../book-query.js';
 
 export class BookFiltersDto {
   @ApiPropertyOptional({
-    description: 'Texto a buscar en título y autor',
+    description:
+      'Texto a buscar en título y autor (sin distinguir mayúsculas ni tildes)',
     maxLength: 100,
     example: 'allende',
   })
