@@ -31,6 +31,7 @@ const user: User = {
   email: 'admin@cmpc.cl',
   name: 'Administrador',
   passwordHash: '$argon2id$hash',
+  tokenVersion: 2,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -106,14 +107,44 @@ describe('session-cookie', () => {
 });
 
 describe('JwtStrategy', () => {
-  it('convierte el payload en AuthUser', () => {
-    const strategy = new JwtStrategy(
+  let users: MockProxy<UsersRepository>;
+  let strategy: JwtStrategy;
+
+  beforeEach(() => {
+    users = mock<UsersRepository>();
+    strategy = new JwtStrategy(
       configMock({ JWT_SECRET: 's'.repeat(32) }),
+      users,
     );
-    expect(strategy.validate({ sub: 'u1', email: 'admin@cmpc.cl' })).toEqual({
-      id: 'u1',
-      email: 'admin@cmpc.cl',
-    });
+  });
+
+  it('carga el usuario y lo convierte en AuthUser si la versión del token coincide', async () => {
+    users.findById.mockResolvedValue(user);
+    await expect(
+      strategy.validate({ sub: 'u1', email: 'viejo@cmpc.cl', tv: 2 }),
+    ).resolves.toEqual({ id: 'u1', email: 'admin@cmpc.cl' });
+    expect(users.findById).toHaveBeenCalledWith('u1');
+  });
+
+  it('responde 401 si el usuario ya no existe', async () => {
+    users.findById.mockResolvedValue(null);
+    await expect(
+      strategy.validate({ sub: 'u1', email: 'admin@cmpc.cl', tv: 0 }),
+    ).rejects.toThrow(new UnauthorizedException('No autenticado'));
+  });
+
+  it.each([
+    ['revocado por un logout', 1],
+    ['emitido sin versión', undefined],
+  ])('responde 401 si el token fue %s', async (_case, tv) => {
+    users.findById.mockResolvedValue(user);
+    await expect(
+      strategy.validate({
+        sub: 'u1',
+        email: 'admin@cmpc.cl',
+        tv: tv as number,
+      }),
+    ).rejects.toThrow(new UnauthorizedException('No autenticado'));
   });
 });
 
@@ -215,6 +246,7 @@ describe('AuthService', () => {
     expect(jwt.signAsync).toHaveBeenCalledWith({
       sub: 'u1',
       email: 'admin@cmpc.cl',
+      tv: 2,
     });
     expect(audit.record).toHaveBeenCalledWith(prisma, {
       action: 'LOGIN',
@@ -268,6 +300,41 @@ describe('AuthService', () => {
     expect(hasher.verify).toHaveBeenCalledWith(null, 'x');
   });
 
+  describe('logout', () => {
+    it('con un token válido incrementa la versión de su usuario', async () => {
+      jwt.verifyAsync.mockResolvedValue({
+        sub: 'u1',
+        email: 'admin@cmpc.cl',
+        tv: 2,
+      });
+
+      await service.logout('signed-jwt');
+
+      expect(jwt.verifyAsync).toHaveBeenCalledWith('signed-jwt', {
+        algorithms: ['HS256'],
+      });
+      expect(users.revokeTokens).toHaveBeenCalledWith('u1', 2);
+    });
+
+    it('sin token no hace nada', async () => {
+      await service.logout(null);
+      expect(jwt.verifyAsync).not.toHaveBeenCalled();
+      expect(users.revokeTokens).not.toHaveBeenCalled();
+    });
+
+    it('con un token inválido o expirado no falla ni revoca', async () => {
+      jwt.verifyAsync.mockRejectedValue(new Error('jwt expired'));
+      await expect(service.logout('basura')).resolves.toBeUndefined();
+      expect(users.revokeTokens).not.toHaveBeenCalled();
+    });
+
+    it('con un token emitido sin versión no revoca', async () => {
+      jwt.verifyAsync.mockResolvedValue({ sub: 'u1', email: 'admin@cmpc.cl' });
+      await service.logout('signed-jwt');
+      expect(users.revokeTokens).not.toHaveBeenCalled();
+    });
+  });
+
   it('me devuelve el usuario actual', async () => {
     users.findById.mockResolvedValue(user);
     await expect(service.me('u1')).resolves.toEqual({
@@ -317,14 +384,30 @@ describe('AuthController', () => {
     });
   });
 
-  it('logout limpia la cookie', () => {
-    controller.logout(response);
+  it('logout limpia la cookie y revoca el token de la request', async () => {
+    const request = {
+      cookies: {},
+      headers: { authorization: 'Bearer jwt-header' },
+    } as unknown as Request;
+
+    await controller.logout(request, response);
+
     expect(response.clearCookie).toHaveBeenCalledWith(SESSION_COOKIE, {
       httpOnly: true,
       sameSite: 'strict',
       secure: false,
       path: '/',
     });
+    expect(service.logout).toHaveBeenCalledWith('jwt-header');
+  });
+
+  it('logout sin token limpia la cookie igual', async () => {
+    await controller.logout(
+      { cookies: {}, headers: {} } as unknown as Request,
+      response,
+    );
+    expect(response.clearCookie).toHaveBeenCalledOnce();
+    expect(service.logout).toHaveBeenCalledWith(null);
   });
 
   it('me delega en AuthService', async () => {

@@ -10,7 +10,8 @@ interface UniqueViolationMeta {
 
 /**
  * P2002 sobre autores, editoriales o géneros: dos transacciones crearon a la vez el
- * mismo nombre nuevo con `connectOrCreate` y perdió la segunda. Con `@prisma/adapter-pg`
+ * mismo nombre nuevo (aunque difiera en mayúsculas, por el índice único sobre
+ * lower(name)) y perdió la segunda. Con `@prisma/adapter-pg`
  * el modelo llega en `meta.modelName` y la tabla en `meta.driverAdapterError.cause.table`.
  */
 export function isCatalogNameConflict(error: unknown): boolean {

@@ -135,32 +135,95 @@ describe('BooksRepository', () => {
     });
   });
 
-  it('create hace connectOrCreate por nombre y guarda el precio como Decimal', async () => {
-    tx.book.create.mockResolvedValue(makeBook());
-    await repository.create(tx, BOOK_INPUT);
+  describe('autor, editorial y género por nombre sin distinguir mayúsculas', () => {
+    /** SQL (sin parámetros) y valores de cada búsqueda por nombre. */
+    function lookups() {
+      return tx.$queryRaw.mock.calls.map(([strings, ...values]) => ({
+        sql: (strings as TemplateStringsArray).join('?').replace(/\s+/g, ' '),
+        values,
+      }));
+    }
 
-    const args = tx.book.create.mock.calls[0][0];
-    expect(args.data.author).toEqual({
-      connectOrCreate: {
-        where: { name: 'Isabel Allende' },
-        create: { name: 'Isabel Allende' },
-      },
+    it('create conecta por id con los registros existentes, sin crear nuevos', async () => {
+      tx.$queryRaw
+        .mockResolvedValueOnce([{ id: 'a1' }])
+        .mockResolvedValueOnce([{ id: 'p1' }])
+        .mockResolvedValueOnce([{ id: 'g1' }]);
+      tx.book.create.mockResolvedValue(makeBook());
+
+      await repository.create(tx, {
+        ...BOOK_INPUT,
+        authorName: 'ISABEL allende',
+      });
+
+      expect(lookups()).toEqual([
+        {
+          sql: ' SELECT id FROM authors WHERE lower(name) = lower(?) LIMIT 1',
+          values: ['ISABEL allende'],
+        },
+        {
+          sql: ' SELECT id FROM publishers WHERE lower(name) = lower(?) LIMIT 1',
+          values: ['Sudamericana'],
+        },
+        {
+          sql: ' SELECT id FROM genres WHERE lower(name) = lower(?) LIMIT 1',
+          values: ['Realismo mágico'],
+        },
+      ]);
+      const args = tx.book.create.mock.calls[0][0];
+      expect(args.data.author).toEqual({ connect: { id: 'a1' } });
+      expect(args.data.publisher).toEqual({ connect: { id: 'p1' } });
+      expect(args.data.genre).toEqual({ connect: { id: 'g1' } });
+      expect(tx.author.create).not.toHaveBeenCalled();
+      expect(tx.publisher.create).not.toHaveBeenCalled();
+      expect(tx.genre.create).not.toHaveBeenCalled();
     });
-    expect(args.data.publisher).toEqual({
-      connectOrCreate: {
-        where: { name: 'Sudamericana' },
-        create: { name: 'Sudamericana' },
-      },
+
+    it('create crea los que no existen con el nombre recibido y guarda el precio como Decimal', async () => {
+      tx.$queryRaw.mockResolvedValue([]);
+      tx.author.create.mockResolvedValue({ id: 'a2' } as never);
+      tx.publisher.create.mockResolvedValue({ id: 'p2' } as never);
+      tx.genre.create.mockResolvedValue({ id: 'g2' } as never);
+      tx.book.create.mockResolvedValue(makeBook());
+
+      await repository.create(tx, BOOK_INPUT);
+
+      const select = { id: true };
+      expect(tx.author.create).toHaveBeenCalledWith({
+        data: { name: 'Isabel Allende' },
+        select,
+      });
+      expect(tx.publisher.create).toHaveBeenCalledWith({
+        data: { name: 'Sudamericana' },
+        select,
+      });
+      expect(tx.genre.create).toHaveBeenCalledWith({
+        data: { name: 'Realismo mágico' },
+        select,
+      });
+      const args = tx.book.create.mock.calls[0][0];
+      expect(args.data.author).toEqual({ connect: { id: 'a2' } });
+      expect(args.data.publisher).toEqual({ connect: { id: 'p2' } });
+      expect(args.data.genre).toEqual({ connect: { id: 'g2' } });
+      expect(args.data.price).toBeInstanceOf(Prisma.Decimal);
+      expect((args.data.price as Prisma.Decimal).toFixed(2)).toBe('15990.50');
+      expect(args.include).toEqual(BOOK_INCLUDE);
     });
-    expect(args.data.genre).toEqual({
-      connectOrCreate: {
-        where: { name: 'Realismo mágico' },
-        create: { name: 'Realismo mágico' },
-      },
+
+    it('trata % y _ como caracteres literales (no usa ILIKE)', async () => {
+      tx.$queryRaw.mockResolvedValue([]);
+      tx.author.create.mockResolvedValue({ id: 'a3' } as never);
+      tx.book.update.mockResolvedValue(makeBook());
+
+      await repository.update(tx, BOOK_ID, { authorName: 'Autor_100%' });
+
+      expect(lookups()).toEqual([
+        {
+          sql: ' SELECT id FROM authors WHERE lower(name) = lower(?) LIMIT 1',
+          values: ['Autor_100%'],
+        },
+      ]);
     });
-    expect(args.data.price).toBeInstanceOf(Prisma.Decimal);
-    expect((args.data.price as Prisma.Decimal).toFixed(2)).toBe('15990.50');
-    expect(args.include).toEqual(BOOK_INCLUDE);
   });
 
   it('lockIfUnchanged escribe la nueva versión solo si id, deletedAt y updatedAt coinciden', async () => {
@@ -193,24 +256,22 @@ describe('BooksRepository', () => {
   });
 
   it('update solo envía los campos presentes', async () => {
+    tx.$queryRaw.mockResolvedValue([{ id: 'g9' }]);
     tx.book.update.mockResolvedValue(makeBook());
-    await repository.update(tx, BOOK_ID, { stock: 0, genreName: 'Novela' });
+    await repository.update(tx, BOOK_ID, { stock: 0, genreName: 'novela' });
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
     expect(tx.book.update).toHaveBeenCalledWith({
       where: { id: BOOK_ID },
-      data: {
-        stock: 0,
-        genre: {
-          connectOrCreate: {
-            where: { name: 'Novela' },
-            create: { name: 'Novela' },
-          },
-        },
-      },
+      data: { stock: 0, genre: { connect: { id: 'g9' } } },
       include: BOOK_INCLUDE,
     });
   });
 
   it('update convierte todos los campos cuando vienen completos', async () => {
+    tx.$queryRaw.mockResolvedValue([]);
+    tx.author.create.mockResolvedValue({ id: 'a1' } as never);
+    tx.publisher.create.mockResolvedValue({ id: 'p1' } as never);
+    tx.genre.create.mockResolvedValue({ id: 'g1' } as never);
     tx.book.update.mockResolvedValue(makeBook());
     await repository.update(tx, BOOK_ID, BOOK_INPUT);
     const { data } = tx.book.update.mock.calls[0][0];

@@ -461,20 +461,20 @@ describe('API de libros (e2e)', () => {
   it('reutiliza autor, editorial y género aunque el nombre difiera en espacios', async () => {
     const first = await createBook({
       title: '  Espacios   uno ',
-      authorName: '  Autor   Nuevo ',
-      publisherName: 'Editorial \t Nueva',
-      genreName: 'Género\n\nNuevo',
+      authorName: '  Autor   Espaciado ',
+      publisherName: 'Editorial \t Espaciada',
+      genreName: 'Género\n\nEspaciado',
     });
     const second = await createBook({
       title: 'Espacios dos',
-      authorName: 'Autor Nuevo',
-      publisherName: 'Editorial Nueva',
-      genreName: 'Género Nuevo',
+      authorName: 'Autor Espaciado',
+      publisherName: 'Editorial Espaciada',
+      genreName: 'Género Espaciado',
     });
 
     expect(first.title).toBe('Espacios uno');
     expect(first.author).toEqual(second.author);
-    expect(first.author.name).toBe('Autor Nuevo');
+    expect(first.author.name).toBe('Autor Espaciado');
     const stored = await ctx.prisma.book.findMany({
       where: { id: { in: [first.id, second.id] } },
       select: { authorId: true, publisherId: true, genreId: true },
@@ -482,8 +482,113 @@ describe('API de libros (e2e)', () => {
     expect(stored).toHaveLength(2);
     expect(stored[0]).toEqual(stored[1]);
     await expect(
-      ctx.prisma.author.count({ where: { name: { contains: 'Nuevo' } } }),
+      ctx.prisma.author.count({ where: { name: { contains: 'Espaciado' } } }),
     ).resolves.toBe(1);
+  });
+
+  /** Cuenta los registros cuyo nombre coincide sin distinguir mayúsculas. */
+  function countCatalog(
+    table: 'authors' | 'publishers' | 'genres',
+    name: string,
+  ) {
+    return ctx.prisma
+      .$queryRawUnsafe<{ count: bigint }[]>(
+        `SELECT count(*) AS count FROM ${table} WHERE lower(name) = lower($1)`,
+        name,
+      )
+      .then(([row]) => Number(row.count));
+  }
+
+  it('reutiliza autor, editorial y género aunque el nombre difiera en mayúsculas', async () => {
+    const first = await createBook({
+      authorName: 'Pablo Neruda',
+      publisherName: 'Editorial Mayúsculas',
+      genreName: 'Género Mayúsculas',
+    });
+    const second = await createBook({
+      authorName: 'pablo   NERUDA',
+      publisherName: 'EDITORIAL mayúsculas',
+      genreName: 'género MAYÚSCULAS',
+    });
+
+    expect(second.author).toEqual({
+      id: first.author.id,
+      name: 'Pablo Neruda',
+    });
+    const stored = await ctx.prisma.book.findMany({
+      where: { id: { in: [first.id, second.id] } },
+      include: { publisher: true, genre: true },
+    });
+    expect(stored).toHaveLength(2);
+    expect(stored[0].publisherId).toBe(stored[1].publisherId);
+    expect(stored[0].publisher.name).toBe('Editorial Mayúsculas');
+    expect(stored[0].genreId).toBe(stored[1].genreId);
+    expect(stored[0].genre.name).toBe('Género Mayúsculas');
+    await expect(countCatalog('authors', 'Pablo Neruda')).resolves.toBe(1);
+    await expect(
+      countCatalog('publishers', 'Editorial Mayúsculas'),
+    ).resolves.toBe(1);
+    await expect(countCatalog('genres', 'Género Mayúsculas')).resolves.toBe(1);
+  });
+
+  it('la edición también conecta con el autor existente sin distinguir mayúsculas', async () => {
+    const neruda = await createBook({ authorName: 'Pablo Neruda' });
+    const other = await createBook({ authorName: 'Otro autor e2e' });
+
+    const { body } = await api()
+      .patch(`/api/books/${other.id}`)
+      .set('Cookie', cookie)
+      .send({ authorName: 'PABLO NERUDA' })
+      .expect(200);
+
+    expect(body.data.author).toEqual(neruda.author);
+    await expect(countCatalog('authors', 'Pablo Neruda')).resolves.toBe(1);
+
+    // Cambiar solo mayúsculas no es un cambio efectivo: no toca updatedAt.
+    const { body: same } = await api()
+      .patch(`/api/books/${other.id}`)
+      .set('Cookie', cookie)
+      .send({ authorName: 'pablo neruda' })
+      .expect(200);
+    expect(same.data.updatedAt).toBe(body.data.updatedAt);
+  });
+
+  it('altas simultáneas del mismo autor nuevo con distintas mayúsculas crean un solo autor', async () => {
+    const variants = ['Autor Nuevo', 'autor nuevo', 'AUTOR NUEVO'];
+    const responses = await Promise.all(
+      Array.from({ length: 5 }, (_, index) =>
+        api()
+          .post('/api/books')
+          .set('Cookie', cookie)
+          .send({
+            title: `Mayúsculas concurrente ${index}`,
+            authorName: variants[index % variants.length],
+            publisherName: variants[index % variants.length].replace(
+              /autor/i,
+              'Editorial',
+            ),
+            genreName: variants[index % variants.length].replace(
+              /autor/i,
+              'Género',
+            ),
+            price: 1000,
+            stock: 1,
+          }),
+      ),
+    );
+
+    expect(responses.map((response) => response.status)).toEqual(
+      Array(5).fill(201),
+    );
+    const authorIds = new Set(
+      responses.map((response) => (response.body.data as BookBody).author.id),
+    );
+    expect(authorIds.size).toBe(1);
+    await expect(countCatalog('authors', 'autor nuevo')).resolves.toBe(1);
+    await expect(countCatalog('publishers', 'Editorial nuevo')).resolves.toBe(
+      1,
+    );
+    await expect(countCatalog('genres', 'Género nuevo')).resolves.toBe(1);
   });
 
   it('creaciones simultáneas con el mismo autor nuevo no fallan por la carrera del upsert', async () => {

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { JwtService } from '@nestjs/jwt';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createE2eApp, login, type E2eApp } from './support/e2e-app.js';
@@ -129,23 +131,93 @@ describe('Autenticación (e2e)', () => {
     });
   });
 
-  it('logout responde 204 y expira la cookie, aun sin sesión', async () => {
-    const response = await request(ctx.server)
-      .post('/api/auth/logout')
-      .set('Cookie', cookie)
-      .expect(204);
-    expect(String(response.headers['set-cookie'])).toMatch(
-      /cmpc_session=;.*Expires=Thu, 01 Jan 1970/,
-    );
-    await request(ctx.server).post('/api/auth/logout').expect(204);
-  });
-
   it('Bearer también autentica (misma sesión)', async () => {
     const token = cookie.split('=')[1];
     await request(ctx.server)
       .get('/api/auth/me')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
+  });
+
+  describe('logout', () => {
+    it('responde 204, expira la cookie e invalida el token como cookie y como Bearer', async () => {
+      const token = cookie.split('=')[1];
+      const response = await request(ctx.server)
+        .post('/api/auth/logout')
+        .set('Cookie', cookie)
+        .expect(204);
+      expect(String(response.headers['set-cookie'])).toMatch(
+        /cmpc_session=;.*Expires=Thu, 01 Jan 1970/,
+      );
+
+      for (const auth of [
+        { header: 'Cookie', value: cookie },
+        { header: 'Authorization', value: `Bearer ${token}` },
+      ]) {
+        const { body } = await request(ctx.server)
+          .get('/api/auth/me')
+          .set(auth.header, auth.value)
+          .expect(401);
+        expect(body).toMatchObject({
+          statusCode: 401,
+          message: 'No autenticado',
+        });
+      }
+    });
+
+    it('un login nuevo funciona y un logout por Bearer también lo invalida', async () => {
+      const fresh = await login(ctx.server, ctx.credentials);
+      await request(ctx.server)
+        .get('/api/auth/me')
+        .set('Cookie', fresh)
+        .expect(200);
+
+      await request(ctx.server)
+        .post('/api/auth/logout')
+        .set('Authorization', `Bearer ${fresh.split('=')[1]}`)
+        .expect(204);
+      await request(ctx.server)
+        .get('/api/auth/me')
+        .set('Cookie', fresh)
+        .expect(401);
+    });
+
+    it('responde 204 sin token, con un token basura o con uno ya revocado', async () => {
+      await request(ctx.server).post('/api/auth/logout').expect(204);
+      await request(ctx.server)
+        .post('/api/auth/logout')
+        .set('Cookie', 'cmpc_session=basura')
+        .expect(204);
+      await request(ctx.server)
+        .post('/api/auth/logout')
+        .set('Authorization', 'Bearer basura.basura.basura')
+        .expect(204);
+
+      const before = await ctx.prisma.user.findUniqueOrThrow({
+        where: { email: ctx.credentials.email },
+      });
+      await request(ctx.server)
+        .post('/api/auth/logout')
+        .set('Cookie', cookie)
+        .expect(204);
+      const after = await ctx.prisma.user.findUniqueOrThrow({
+        where: { email: ctx.credentials.email },
+      });
+      expect(after.tokenVersion).toBe(before.tokenVersion);
+    });
+
+    it('un token bien firmado de un usuario inexistente responde 401', async () => {
+      const token = await ctx.app.get(JwtService).signAsync({
+        sub: randomUUID(),
+        email: 'nadie@cmpc.test',
+        tv: 0,
+      });
+      const { body } = await request(ctx.server)
+        .get('/api/auth/me')
+        .set('Authorization', `Bearer ${token}`)
+        .expect(401);
+      expect(body.message).toBe('No autenticado');
+    });
   });
 
   it('login registra LOGIN en la auditoría', async () => {

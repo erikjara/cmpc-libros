@@ -34,6 +34,7 @@ const log: AuditLogWithUser = {
     email: 'admin@cmpc.cl',
     name: 'Administrador',
     passwordHash: 'hash',
+    tokenVersion: 0,
     createdAt: new Date(),
     updatedAt: new Date(),
   },

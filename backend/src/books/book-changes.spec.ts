@@ -26,9 +26,13 @@ describe('hasEffectiveChanges', () => {
     expect(hasEffectiveChanges(makeBook(), input)).toBe(true);
   });
 
-  it('distingue mayúsculas en los nombres de catálogo', () => {
+  it('no distingue mayúsculas en los nombres de catálogo (mismo registro)', () => {
     expect(
-      hasEffectiveChanges(makeBook(), { authorName: 'isabel allende' }),
-    ).toBe(true);
+      hasEffectiveChanges(makeBook(), {
+        authorName: 'isabel allende',
+        publisherName: 'SUDAMERICANA',
+        genreName: 'realismo Mágico',
+      }),
+    ).toBe(false);
   });
 });
