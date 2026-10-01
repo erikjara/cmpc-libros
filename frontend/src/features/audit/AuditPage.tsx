@@ -46,7 +46,15 @@ function ActionBadge({ action }: { action: AuditAction }) {
 
 function AuditTable({ logs }: { logs: AuditLog[] }) {
   return (
-    <Table>
+    <Table className="min-w-[860px] table-fixed">
+      <colgroup>
+        <col style={{ width: '16%' }} />
+        <col style={{ width: '13%' }} />
+        <col style={{ width: '9%' }} />
+        <col style={{ width: '13%' }} />
+        <col style={{ width: '12%' }} />
+        <col style={{ width: '37%' }} />
+      </colgroup>
       <TableHeader>
         <TableRow>
           <TableHead>Fecha</TableHead>
@@ -67,9 +75,9 @@ function AuditTable({ logs }: { logs: AuditLog[] }) {
               <ActionBadge action={log.action} />
             </TableCell>
             <TableCell>{ENTITY_LABELS[log.entity] ?? log.entity}</TableCell>
-            <TableCell>{log.user?.name ?? '—'}</TableCell>
+            <TableCell className="whitespace-normal break-words">{log.user?.name ?? '—'}</TableCell>
             <TableCell className="font-mono text-xs">{log.ip ?? '—'}</TableCell>
-            <TableCell className="max-w-md min-w-64 whitespace-normal break-words text-muted-foreground">
+            <TableCell className="whitespace-normal break-words text-muted-foreground">
               {summarizeChanges(log)}
             </TableCell>
           </TableRow>

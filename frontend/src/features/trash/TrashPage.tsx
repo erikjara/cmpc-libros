@@ -26,7 +26,14 @@ interface TrashTableProps {
 
 function TrashTable({ books, restoringId, onRestore }: TrashTableProps) {
   return (
-    <Table>
+    <Table className="min-w-[720px] table-fixed">
+      <colgroup>
+        <col style={{ width: '32%' }} />
+        <col style={{ width: '20%' }} />
+        <col style={{ width: '16%' }} />
+        <col style={{ width: '17%' }} />
+        <col style={{ width: '15%' }} />
+      </colgroup>
       <TableHeader>
         <TableRow>
           <TableHead>Título</TableHead>
@@ -39,9 +46,9 @@ function TrashTable({ books, restoringId, onRestore }: TrashTableProps) {
       <TableBody>
         {books.map((book) => (
           <TableRow key={book.id}>
-            <TableCell className="font-medium">{book.title}</TableCell>
-            <TableCell>{book.author.name}</TableCell>
-            <TableCell>{book.publisher.name}</TableCell>
+            <TableCell className="font-medium whitespace-normal break-words">{book.title}</TableCell>
+            <TableCell className="whitespace-normal break-words">{book.author.name}</TableCell>
+            <TableCell className="whitespace-normal break-words">{book.publisher.name}</TableCell>
             <TableCell>
               <time dateTime={book.deletedAt}>{formatDateTime(book.deletedAt)}</time>
             </TableCell>

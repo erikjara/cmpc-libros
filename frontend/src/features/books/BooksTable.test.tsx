@@ -29,6 +29,14 @@ function renderTable(initialEntry = '/books') {
 }
 
 describe('BooksTable', () => {
+  it('usa anchos de columna fijos para que ordenar no desplace las columnas', () => {
+    renderTable()
+    const table = screen.getByRole('table')
+    expect(table).toHaveClass('table-fixed')
+    const widths = Array.from(table.querySelectorAll('col'), (col) => col.style.width)
+    expect(widths).toEqual(['30%', '18%', '14%', '13%', '11%', '14%'])
+  })
+
   it('muestra una fila por libro con precio en CLP y disponibilidad', () => {
     renderTable()
     const rows = screen.getAllByRole('row')

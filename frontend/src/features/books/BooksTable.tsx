@@ -41,6 +41,17 @@ const columns = columnHelper.columns([
   }),
 ])
 
+// Anchos fijos por columna (table-layout: fixed): el ancho no depende del contenido de la página,
+// así que ordenar o paginar no desplaza las columnas.
+const COLUMN_WIDTHS: Record<string, string> = {
+  title: '30%',
+  author: '18%',
+  publisher: '14%',
+  genre: '13%',
+  price: '11%',
+  stock: '14%',
+}
+
 const SORT_LABELS = { asc: 'ascendente', desc: 'descendente' } as const
 const MULTI_SORT_HINT = 'Mayús + clic para ordenar por varias columnas'
 
@@ -81,7 +92,12 @@ export function BooksTable({ books, total, page, limit, sorting, onSortingChange
 
   return (
     <div className="flex flex-col gap-2">
-      <Table>
+      <Table className="min-w-[760px] table-fixed">
+        <colgroup>
+          {table.getAllLeafColumns().map((column) => (
+            <col key={column.id} style={{ width: COLUMN_WIDTHS[column.id] }} />
+          ))}
+        </colgroup>
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id}>
@@ -101,18 +117,21 @@ export function BooksTable({ books, total, page, limit, sorting, onSortingChange
                       aria-describedby={hintId}
                     >
                       <table.FlexRender header={header} />
-                      {direction === 'asc' && <ArrowUpIcon className="size-3.5" aria-hidden />}
-                      {direction === 'desc' && <ArrowDownIcon className="size-3.5" aria-hidden />}
-                      {!direction && <ArrowUpDownIcon className="size-3.5 opacity-40" aria-hidden />}
-                      {direction && (
-                        <Badge
-                          variant="outline"
-                          className="h-4 px-1 text-[10px]"
-                          aria-label={`Prioridad ${priority}, ${SORT_LABELS[direction]}`}
-                        >
-                          {priority}
-                        </Badge>
-                      )}
+                      {/* Espacio fijo para el indicador: activarlo no ensancha el encabezado. */}
+                      <span className="inline-flex w-9 shrink-0 items-center gap-1">
+                        {direction === 'asc' && <ArrowUpIcon className="size-3.5" aria-hidden />}
+                        {direction === 'desc' && <ArrowDownIcon className="size-3.5" aria-hidden />}
+                        {!direction && <ArrowUpDownIcon className="size-3.5 opacity-40" aria-hidden />}
+                        {direction && (
+                          <Badge
+                            variant="outline"
+                            className="h-4 px-1 text-[10px]"
+                            aria-label={`Prioridad ${priority}, ${SORT_LABELS[direction]}`}
+                          >
+                            {priority}
+                          </Badge>
+                        )}
+                      </span>
                     </button>
                   </TableHead>
                 )
@@ -124,7 +143,7 @@ export function BooksTable({ books, total, page, limit, sorting, onSortingChange
           {table.getRowModel().rows.map((row) => (
             <TableRow key={row.id}>
               {row.getAllCells().map((cell) => (
-                <TableCell key={cell.id}>
+                <TableCell key={cell.id} className="whitespace-normal break-words">
                   <table.FlexRender cell={cell} />
                 </TableCell>
               ))}
