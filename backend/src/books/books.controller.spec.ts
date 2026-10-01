@@ -8,9 +8,7 @@ import {
   INTERCEPTORS_METADATA,
   PATH_METADATA,
 } from '@nestjs/common/constants.js';
-import { Reflector } from '@nestjs/core';
 import { ETagInterceptor } from '../common/interceptors/etag.interceptor.js';
-import { NO_TIMEOUT_KEY } from '../common/decorators/no-timeout.decorator.js';
 import { PaginatedResult } from '../common/pagination/pagination.js';
 import {
   BOOK_ID,
@@ -48,20 +46,6 @@ describe('BooksController', () => {
     books = mock<BooksService>();
     exporter = mock<BooksExportService>();
     controller = new BooksController(books, exporter);
-  });
-
-  it('excluye del límite de tiempo solo la exportación y la subida de imagen', () => {
-    const reflector = new Reflector();
-    const prototype = BooksController.prototype as unknown as Record<
-      string,
-      () => unknown
-    >;
-    const exempt = Object.getOwnPropertyNames(prototype).filter(
-      (name) =>
-        name !== 'constructor' &&
-        reflector.get<boolean>(NO_TIMEOUT_KEY, prototype[name]),
-    );
-    expect(exempt.sort()).toEqual(['export', 'uploadImage']);
   });
 
   it('update interpreta el header If-Match y lo pasa al service', async () => {

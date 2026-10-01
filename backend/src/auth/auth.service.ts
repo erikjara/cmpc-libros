@@ -7,6 +7,7 @@ import { toUserDto, type UserDto } from '../users/user.mapper.js';
 import { UsersRepository } from '../users/users.repository.js';
 import type { JwtPayload } from './auth.constants.js';
 import type { LoginDto } from './dto/login.dto.js';
+import { maskEmail } from './mask-email.js';
 import { PasswordHasher } from './password-hasher.js';
 
 export interface LoginResult {
@@ -37,7 +38,7 @@ export class AuthService {
     );
     if (!user || !valid) {
       this.logger.warn(
-        `Inicio de sesión fallido: email=${credentials.email} ip=${context.ip ?? 'desconocida'}`,
+        `Inicio de sesión fallido: email=${maskEmail(credentials.email)} ip=${context.ip ?? 'desconocida'}`,
       );
       throw new UnauthorizedException('Credenciales inválidas');
     }

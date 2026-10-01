@@ -28,7 +28,6 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { NoTimeout } from '../common/decorators/no-timeout.decorator.js';
 import { ReqContext } from '../common/decorators/request-context.decorator.js';
 import { parseIfMatch } from '../common/http/etag.js';
 import { ETagInterceptor } from '../common/interceptors/etag.interceptor.js';
@@ -81,7 +80,6 @@ export class BooksController {
 
   // Declarada antes de ':id' para que "export" no se interprete como id.
   @Get('export')
-  @NoTimeout()
   @ApiOperation({
     summary: 'Exporta a CSV (streaming) los libros que cumplen los filtros',
   })
@@ -214,7 +212,6 @@ export class BooksController {
 
   @Post(':id/image')
   @HttpCode(200)
-  @NoTimeout()
   @UseInterceptors(
     ETagInterceptor,
     FileInterceptor('image', {

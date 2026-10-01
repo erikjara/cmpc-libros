@@ -235,7 +235,7 @@ describe('AuthService', () => {
     expect(jwt.signAsync).not.toHaveBeenCalled();
   });
 
-  it('registra con warn el intento fallido con email e IP, sin la contraseña', async () => {
+  it('registra con warn el intento fallido con email enmascarado e IP, sin la contraseña', async () => {
     users.findByEmail.mockResolvedValue(user);
     hasher.verify.mockResolvedValue(false);
     const warn = vi
@@ -251,7 +251,8 @@ describe('AuthService', () => {
 
     expect(warn).toHaveBeenCalledOnce();
     const message = String(warn.mock.calls[0][0]);
-    expect(message).toContain('admin@cmpc.cl');
+    expect(message).toContain('email=a***@cmpc.cl');
+    expect(message).not.toContain('admin@cmpc.cl');
     expect(message).toContain('10.0.0.1');
     expect(message).not.toContain('clave-secreta-123');
     warn.mockRestore();
