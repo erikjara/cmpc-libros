@@ -15,9 +15,12 @@ operación.
   mismo formulario, y carga de imagen de portada con vista previa.
 - **Detalle** del libro con su disponibilidad y precio en pesos chilenos.
 - **Eliminación reversible** (soft delete) con confirmación.
-- **Exportación CSV** del listado con los filtros activos, lista para abrir en Excel.
+- **Exportación CSV** del listado con los filtros activos, en el formato que Excel espera con
+  configuración regional chilena (`;` como separador y coma decimal).
 - **Auditoría** de altas, ediciones, eliminaciones, restauraciones, exportaciones e inicios de
   sesión, registrada en la misma transacción que el cambio.
+- **Edición concurrente segura:** si otra persona modificó el libro mientras lo editabas, el
+  guardado se rechaza en vez de sobrescribir sus cambios.
 - **API REST documentada** con Swagger.
 
 ## Capturas
@@ -137,6 +140,8 @@ arrancar: si falta una variable obligatoria o tiene un formato inválido, la API
 | `CORS_ORIGIN` | Origen permitido para peticiones con credenciales | `http://localhost:8080` |
 | `UPLOADS_DIR` | Directorio de imágenes de portada (solo desarrollo local; en Docker es el volumen `uploads`) | `./uploads` |
 | `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` | Usuario administrador creado por el seed | `admin@cmpc.cl`, `Admin123!` |
+| `SEED_DEMO_DATA` | Carga ~60 libros de demostración si la base no tiene libros (`false` por defecto) | `true` |
+| `REQUEST_TIMEOUT_MS` | Tiempo máximo de una request antes de responder 503 (no aplica a exportación ni subida de imágenes) | `30000` |
 
 En Docker, `docker-compose.yml` entrega a la API solo las variables que usa y deriva `DATABASE_URL` de
 `POSTGRES_*`, así que cambiar las credenciales en un único lugar basta. En desarrollo local el host
@@ -150,6 +155,9 @@ despliegue real:
 - Generar un `JWT_SECRET` propio (p. ej. `openssl rand -base64 48`); el de ejemplo es público.
 - Cambiar `SEED_ADMIN_PASSWORD` (o crear el usuario administrador por otra vía): el seed solo crea
   el usuario si no existe y nunca sobrescribe su contraseña.
+- Dejar `SEED_DEMO_DATA=false` para no cargar libros de demostración.
+- Si la API queda expuesta a Internet, restringir `/api/docs` (Swagger) en nginx a la red interna
+  con `allow`/`deny`; está habilitado en todos los entornos porque es la documentación de la API.
 - Usar credenciales de PostgreSQL propias y no exponer el puerto de la base de datos.
 - Servir detrás de HTTPS y activar `COOKIE_SECURE=true` (habilita además HSTS).
 
@@ -167,9 +175,10 @@ regresa a la página en la que estabas.
   automáticamente al dejar de escribir.
 - **Filtros:** género, editorial, autor y disponibilidad (todos, disponibles o agotados).
   "Limpiar filtros" vuelve al listado completo.
-- **Orden por varias columnas:** cada clic en un encabezado alterna ascendente, descendente y
-  sin orden. Las columnas se suman al orden existente y un indicador muestra su prioridad; por
-  ejemplo, primero por género y, dentro de cada género, por precio.
+- **Orden:** un clic en un encabezado ordena solo por esa columna y alterna ascendente,
+  descendente y sin orden. **Mayús + clic** agrega la columna al orden existente para ordenar por
+  varias a la vez; un indicador muestra la prioridad de cada una (por ejemplo, primero por género
+  y, dentro de cada género, por precio).
 - **Paginación:** la navegación entre páginas se resuelve en el servidor.
 - **URL compartible:** la página, la búsqueda, los filtros y el orden quedan en la URL, así que un
   listado se puede recargar o compartir tal cual.
@@ -181,8 +190,11 @@ escribes y el botón de guardar se habilita cuando el formulario es válido.
 
 - **Autor, editorial y género:** elige un valor existente o escribe uno nuevo; se crea al
   guardar el libro.
-- **Precio** en pesos chilenos (hasta dos decimales) y **stock** como cantidad entera. Un libro
+- **Precio** en pesos chilenos, escrito como se acostumbra en Chile: `15990`, `15.990` (punto
+  como separador de miles) o con decimales `15.990,50`. **Stock** como cantidad entera; un libro
   con stock 0 figura como agotado.
+- **Edición simultánea:** si mientras editabas otra persona guardó cambios en el mismo libro, la
+  aplicación avisa y no sobrescribe esos cambios; al recargar ves la versión actual.
 - **Portada:** JPEG, PNG o WebP de hasta 2 MB, con vista previa antes de guardar. La imagen se
   sube después de guardar los datos; si la subida falla, el libro queda guardado y la aplicación
   lo informa para reintentar desde la edición.
@@ -202,9 +214,25 @@ se conserva en la base de datos y la API permite restaurarlo con
 ### Exportar a CSV
 
 "Exportar CSV" descarga el inventario con los filtros y la búsqueda activos (sin paginar). El
-archivo usa UTF-8 con BOM para que Excel muestre correctamente tildes y eñes, y trae las columnas
-`ID, Título, Autor, Editorial, Género, Precio, Stock, Disponible, Creado`. La exportación se
-genera en streaming y queda registrada en la auditoría.
+archivo usa UTF-8 con BOM para que Excel muestre correctamente tildes y eñes, `;` como separador
+y coma decimal en el precio (lo que espera Excel con configuración regional chilena), y trae las
+columnas `ID; Título; Autor; Editorial; Género; Precio; Stock; Disponible; Creado`. La exportación
+se genera en streaming y queda registrada en la auditoría.
+
+### Auditoría
+
+Cada alta, edición, eliminación, restauración, exportación e inicio de sesión queda registrada con
+el usuario, la IP, la fecha y, en los cambios, los valores anteriores y nuevos. Se consulta desde
+la API (por ejemplo, en Swagger):
+
+```bash
+# Últimas operaciones
+curl -b cookies.txt 'http://localhost:8080/api/audit-logs?limit=20'
+# Historial de un libro
+curl -b cookies.txt 'http://localhost:8080/api/audit-logs?entity=Book&entityId=<id-del-libro>'
+```
+
+Una vista de auditoría en la interfaz está en el Roadmap.
 
 ### API y Swagger
 
@@ -215,7 +243,12 @@ el mismo navegador), las siguientes llamadas usan la cookie de sesión. Los clie
 también pueden enviar el token en `Authorization: Bearer <jwt>`.
 
 `POST /api/auth/logout` es público y responde siempre 204: limpia la cookie aunque la sesión ya
-haya expirado. Los parámetros de query no declarados se rechazan con 400, y los filtros vacíos o
+haya expirado.
+
+**Concurrencia optimista:** las respuestas de un libro incluyen `ETag: "<updatedAt>"`. Si un
+`PATCH /api/books/:id` envía `If-Match` con ese valor y el libro cambió entretanto, la API
+responde 412 en lugar de sobrescribir. Sin `If-Match`, la última escritura prevalece (útil para
+scripts). Un `PATCH` que no cambia ningún valor no modifica el libro ni genera auditoría. Los parámetros de query no declarados se rechazan con 400, y los filtros vacíos o
 con solo espacios se tratan como ausentes.
 
 Ejemplo con `curl`:
@@ -241,8 +274,9 @@ flowchart LR
     api --> uploads[("volumen uploads")]
 ```
 
-- nginx sirve el frontend y reenvía `/api` al backend: un único origen, sin CORS en el
-  despliegue.
+- nginx sirve el frontend y reenvía `/api` al backend: un único origen, así que el navegador no
+  necesita CORS. La API mantiene CORS restringido a `CORS_ORIGIN` para el desarrollo local
+  (Vite en otro puerto) y para otros clientes.
 - El backend se organiza en capas controller → service → repository, con transacciones que
   incluyen la auditoría.
 - El frontend se organiza por features y guarda el estado del listado en la URL.
@@ -292,10 +326,23 @@ Detalle completo:
   almacenamiento está detrás de una interfaz, lo que permite pasar a S3 sin tocar la lógica de
   libros.
 - **Auditoría transaccional.** Cada cambio y su registro de auditoría se confirman juntos.
+- **Concurrencia optimista con `ETag`/`If-Match`** en lugar de bloqueos en la base: no retiene
+  filas mientras alguien tiene el formulario abierto y usa la semántica HTTP estándar (412
+  Precondition Failed). El `If-Match` es opcional para no romper a clientes simples; la interfaz
+  siempre lo envía.
+- **Interceptores de respuesta.** `TransformInterceptor` envuelve las respuestas en `{ data, meta }`,
+  `ETagInterceptor` agrega el `ETag` de los libros y `TimeoutInterceptor` corta con 503 las
+  requests que exceden `REQUEST_TIMEOUT_MS` (excepto exportación y subida de imágenes, que son
+  largas por naturaleza).
+- **Seed separado en datos esenciales y de demostración.** El usuario administrador se asegura en
+  cada arranque; los libros de demostración solo se cargan con `SEED_DEMO_DATA=true` y si la base
+  no tiene libros, de modo que un reinicio nunca recrea ni duplica datos editados.
 - **Exportación en streaming** con lectura por lotes: el tamaño del inventario no afecta la
   memoria del servidor.
-- **Formato del CSV.** Precio con punto decimal y fechas en ISO 8601 (UTC), para que el archivo
-  se procese igual en cualquier configuración regional. Las celdas que empiezan con `=`, `+`, `-`
+- **Formato del CSV para Excel en Chile.** Separador `;` y coma decimal en el precio, que es lo
+  que Excel espera con configuración regional es-CL (con `,` el archivo se abriría en una sola
+  columna). Las fechas van en ISO 8601 (UTC) para que no dependan de la zona horaria de quien
+  abre el archivo. Las celdas que empiezan con `=`, `+`, `-`
   o `@` se prefijan con `'` para evitar la inyección de fórmulas al abrirlo en una planilla.
 - **Logging HTTP con pino-http.** Cada request produce una línea JSON con `requestId`, método,
   ruta, status y duración. Se usa el middleware de pino-http y no un interceptor, porque un
@@ -310,7 +357,7 @@ Detalle completo:
 - **JWT en cookie `httpOnly` y no en `localStorage`.** El código del navegador nunca accede al
   token, por lo que un XSS no puede robarlo (OWASP desaconseja guardar tokens en
   `localStorage`). La cookie es `SameSite=Strict` y, como nginx sirve frontend y API en el mismo
-  origen, no se necesita CORS en el despliegue. La API también acepta `Authorization: Bearer`
+  origen, el navegador no necesita CORS. La API también acepta `Authorization: Bearer`
   para Swagger y otros clientes.
 - **Argon2id para contraseñas**, primera recomendación de OWASP; bcrypt se considera legado y
   trunca las contraseñas a 72 bytes.
@@ -350,8 +397,9 @@ Detalle completo:
   acota una migración futura.
 - **TypeScript 6 y no 7.** `@nestjs/swagger` 12 todavía no admite TypeScript 7.
 - **Versiones exactas y lockfile.** Todas las dependencias se fijan sin rangos y se instalan con
-  `npm ci`, en particular tras el incidente de supply chain que afectó a axios en marzo de 2026:
-  una actualización no revisada no llega por accidente a una build.
+  `npm ci`: una versión nueva (o comprometida) de una dependencia no llega por accidente a una
+  build sin pasar por una actualización revisada del lockfile, una defensa básica frente a
+  ataques de supply chain en npm.
 - **Vitest en ambas aplicaciones.** Es el runner por defecto de NestJS 12 y de Vite: una sola
   herramienta y una sola forma de configurar la cobertura.
 - **Monorepo simple.** `backend/` y `frontend/` son aplicaciones independientes, sin workspaces
@@ -429,6 +477,7 @@ Evoluciones previstas para próximas versiones, con su diseño propuesto:
 | Export masivo asíncrono | Cola BullMQ + Redis, job que genera el archivo y notifica/descarga por URL firmada |
 | Varios autores por libro | Tabla puente `book_authors (book_id, author_id, position)` |
 | Papelera en la UI | Vista de libros eliminados usando `POST /books/:id/restore` (endpoint ya existe) |
+| Portadas privadas | Servir las imágenes con URLs firmadas de vida corta (o desde S3 con URLs prefirmadas) en lugar de `/api/uploads` público, y retirar la portada al eliminar un libro |
 | Cliente tipado | `openapi-typescript` generado desde el Swagger del backend |
 | Tests e2e de interfaz | Playwright contra el stack de Docker Compose en CI (login, listado, alta con imagen, eliminación) |
 | Base de integración aislada | Testcontainers para levantar un PostgreSQL efímero por suite, sin depender de una instancia local |
@@ -437,6 +486,9 @@ Evoluciones previstas para próximas versiones, con su diseño propuesto:
 | Prisma 8 | Migrar cuando alcance GA; el acceso a datos está aislado en repositorios, lo que acota el cambio |
 | Nombres de catálogo sin distinguir mayúsculas | Índice único sobre `lower(name)` (o columna `citext`) en autores, editoriales y géneros, con upsert por nombre normalizado |
 | Catálogos por ID | `GET /api/authors/:id` (y equivalentes) o `?ids=` en los listados, para resolver las etiquetas de los filtros sin traer 50 registros |
+| Revocación de sesiones | Columna `token_version` en `users` incluida en el JWT y verificada por la estrategia: el logout (o un cambio de contraseña) la incrementa e invalida los tokens emitidos antes, sin esperar su expiración |
+| Gestión de catálogos | Pantalla para renombrar o fusionar autores, editoriales y géneros, y ocultar de los filtros los que no tienen libros activos |
+| Vista de auditoría | Página en la interfaz sobre `GET /api/audit-logs` con filtros por entidad, usuario y fecha |
 | Exportación con manejo de errores | Descarga vía `fetch` + `Blob` con `withCredentials`: ante un 401 redirige al login y ante otros errores muestra un aviso, en lugar de descargar el cuerpo del error |
 
 ## Estructura del repositorio
