@@ -1,7 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useCatalogOptions } from '@/features/catalog/catalog.queries'
 import { CatalogFilterCombobox } from '@/features/catalog/CatalogFilterCombobox'
 import { SearchField } from '@/shared/SearchField'
 import { useDebouncedSearch } from '@/shared/useDebouncedSearch'
@@ -25,32 +24,19 @@ interface BooksFiltersProps {
 
 export function BooksFilters({ values, onChange, onClear, hasActiveFilters }: BooksFiltersProps) {
   const [searchText, setSearchText] = useDebouncedSearch(values.search, (search) => onChange({ search }))
-  const { data: genres = [] } = useCatalogOptions('genres', '')
-
-  const genreItems = [{ value: ALL, label: 'Todos los géneros' }, ...genres.map((g) => ({ value: g.id, label: g.name }))]
-
   // 1 columna en móvil, 2 desde sm y los 5 filtros en una fila desde lg.
   return (
     <div className="grid grid-cols-1 gap-3 *:min-w-0 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
       <SearchField id="books-search" value={searchText} onChange={setSearchText} className="sm:col-span-2 lg:col-span-1" />
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="books-genre">Género</Label>
-        <Select
-          items={genreItems}
-          value={values.genreId ?? ALL}
-          onValueChange={(value) => onChange({ genreId: value && value !== ALL ? value : undefined })}
-        >
-          <SelectTrigger id="books-genre" className="w-full">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {genreItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <CatalogFilterCombobox
+          kind="genres"
+          id="books-genre"
+          placeholder="Todos los géneros"
+          value={values.genreId}
+          onChange={(genreId) => onChange({ genreId })}
+        />
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="books-author">Autor</Label>
