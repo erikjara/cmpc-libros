@@ -23,6 +23,7 @@ Table users {
   email text [not null, unique]
   password_hash text [not null, note: 'Hash Argon2id']
   name text [not null]
+  token_version integer [not null, default: 0, note: 'Viaja en el JWT; el logout lo incrementa']
   created_at timestamp [not null, default: `now()`]
   updated_at timestamp [not null]
 

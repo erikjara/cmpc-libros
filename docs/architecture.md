@@ -88,7 +88,7 @@ flowchart TD
 | `config` | Carga y valida las variables de entorno al arrancar; si falta una o es inválida, la aplicación no inicia. |
 | `logger` | Logs JSON de cada request con `nestjs-pino` (pino-http): `requestId`, método, ruta, status y duración. |
 | `prisma` | `PrismaService` global (cliente Prisma 7 con `@prisma/adapter-pg`), conexión y cierre ordenado. |
-| `auth` | Login y logout, `JwtStrategy` (cookie `cmpc_session` o `Authorization: Bearer`), `JwtAuthGuard` global y decorador `@Public()`, límite de intentos de login. El logout es público: limpia la cookie aunque la sesión ya haya expirado. |
+| `auth` | Login y logout, `JwtStrategy` (cookie `cmpc_session` o `Authorization: Bearer`), `JwtAuthGuard` global y decorador `@Public()`, límite de intentos de login. El logout es público: limpia la cookie aunque la sesión ya haya expirado e invalida los tokens del usuario (`token_version`). |
 | `users` | Acceso a usuarios por email. Los usuarios se crean con el seed. |
 | `books` | CRUD de libros, subida de imagen, soft delete y restauración, exportación CSV en streaming. |
 | `catalog` | Listados de autores, editoriales y géneros con búsqueda para autocompletar. |

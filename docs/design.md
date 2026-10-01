@@ -59,7 +59,7 @@ soporte extendido) y la migración queda en el Roadmap.
 
 | Tabla | Columnas |
 |---|---|
-| `users` | `id uuid PK`, `email UNIQUE`, `password_hash`, `name`, `created_at`, `updated_at` |
+| `users` | `id uuid PK`, `email UNIQUE`, `password_hash`, `name`, `token_version`, `created_at`, `updated_at` |
 | `authors` | `id uuid PK`, `name UNIQUE`, `created_at` |
 | `publishers` | `id uuid PK`, `name UNIQUE`, `created_at` |
 | `genres` | `id uuid PK`, `name UNIQUE`, `created_at` |
@@ -138,7 +138,7 @@ lo que hace el comportamiento visible y testeable.
 | Método | Ruta | Notas |
 |---|---|---|
 | POST | `/auth/login` | Público, rate limit. Emite la cookie de sesión y responde `{ user }` |
-| POST | `/auth/logout` | Elimina la cookie de sesión |
+| POST | `/auth/logout` | Elimina la cookie e invalida los tokens emitidos (`token_version`) |
 | GET | `/auth/me` | Usuario autenticado |
 | GET | `/books` | `page`, `limit` (máx. 100), `search`, `genreId`, `publisherId`, `authorId`, `available`, `sort` |
 | GET | `/books/export` | Mismos filtros; CSV en streaming. Declarada antes de `/books/:id` |
@@ -340,6 +340,5 @@ Evoluciones previstas para próximas versiones, con su diseño propuesto:
 | Cliente tipado | `openapi-typescript` generado desde el Swagger del backend |
 | Tests e2e de interfaz | Playwright contra el stack de Docker Compose en CI |
 | Base de integración aislada | Testcontainers: PostgreSQL efímero por suite |
-| Revocación de sesiones | `token_version` en `users`, incluido en el JWT y verificado por la estrategia; el logout lo incrementa |
 | Gestión de catálogos | Renombrar o fusionar autores, editoriales y géneros; ocultar los que no tienen libros activos |
 | Prisma 8 | Migrar cuando alcance GA; el acceso a datos está aislado en repositorios, lo que acota el cambio |

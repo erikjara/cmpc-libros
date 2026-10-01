@@ -261,7 +261,7 @@ el mismo navegador), las siguientes llamadas usan la cookie de sesión. Los clie
 también pueden enviar el token en `Authorization: Bearer <jwt>`.
 
 `POST /api/auth/logout` es público y responde siempre 204: limpia la cookie aunque la sesión ya
-haya expirado.
+haya expirado y, si recibe un token válido, invalida todos los tokens emitidos para ese usuario.
 
 **Concurrencia optimista:** las respuestas de un libro incluyen `ETag: "<updatedAt>"`. Si un
 `PATCH /api/books/:id` envía `If-Match` con ese valor y el libro cambió entretanto, la API
@@ -326,11 +326,11 @@ Detalle completo:
 - **Escritura por nombre con upsert.** El formulario envía el nombre del autor, la editorial y el
   género; el backend lo normaliza y lo busca o crea dentro de la misma transacción que guarda el
   libro. El campo "elegir o crear" no necesita distinguir entre valores existentes y nuevos.
-- **Los nombres de autor, editorial y género distinguen mayúsculas.** "Planeta" y "planeta"
-  serían dos registros distintos en la base. El formulario lo previene: si el texto escrito
-  coincide sin distinguir mayúsculas con un valor existente, usa el nombre tal como está guardado
-  ("planeta" → "Planeta"). La unicidad insensible a mayúsculas en la propia base está en el
-  Roadmap.
+- **Autor, editorial y género únicos sin distinguir mayúsculas, garantizado en la base.** Índices
+  únicos sobre `lower(name)`: "pablo neruda" se conecta con "Pablo Neruda" y se conserva el
+  nombre guardado, venga de la interfaz o de cualquier cliente de la API. Las altas simultáneas
+  del mismo nombre se resuelven con el reintento de la transacción. Se descartó `citext` porque
+  dejaba sin uso el índice trigram de la búsqueda.
 - **Eliminación reversible (soft delete)** con `deleted_at`: conserva el historial, permite
   restaurar y mantiene íntegra la auditoría.
 - **Sin registro público.** Es una herramienta interna; los usuarios se crean con el seed.
@@ -375,6 +375,10 @@ Detalle completo:
   `localStorage`). La cookie es `SameSite=Strict` y, como nginx sirve frontend y API en el mismo
   origen, el navegador no necesita CORS. La API también acepta `Authorization: Bearer`
   para Swagger y otros clientes.
+- **Logout que revoca la sesión.** Cada usuario tiene un `token_version` que viaja en el JWT y se
+  verifica en cada request (una lectura por clave primaria); el logout lo incrementa e invalida
+  todos los tokens emitidos, por cookie o Bearer, en todos los dispositivos. Un token de un
+  usuario inexistente responde 401.
 - **Argon2id para contraseñas**, primera recomendación de OWASP; bcrypt se considera legado y
   trunca las contraseñas a 72 bytes.
 - **Content-Security-Policy estricta en la SPA** (`script-src 'self'`, sin `unsafe-eval`). Por eso
@@ -473,7 +477,7 @@ Resultado de `npm run test:cov`:
 
 | Aplicación | Tests | Sentencias | Ramas | Funciones | Líneas |
 |---|---|---|---|---|---|
-| Backend | 296 unitarios + 39 de integración | 99,29 % | 93,71 % | 98,88 % | 99,28 % |
+| Backend | 307 unitarios + 45 de integración | 99,33 % | 94,31 % | 98,90 % | 99,32 % |
 | Frontend | 271 | 96,64 % | 94,60 % | 96,41 % | 97,61 % |
 
 La cobertura se mide sobre los tests unitarios; los de integración (`npm run test:e2e`) se
@@ -527,9 +531,7 @@ Evoluciones previstas para próximas versiones, con su diseño propuesto:
 | Rate limit distribuido | Throttler global con store en Redis y límites específicos para exportación y subida de imágenes |
 | Procesamiento de imágenes | Re-codificar las portadas con `sharp` (elimina contenido no gráfico) y generar miniaturas |
 | Prisma 8 | Migrar cuando alcance GA; el acceso a datos está aislado en repositorios, lo que acota el cambio |
-| Nombres de catálogo sin distinguir mayúsculas | Índice único sobre `lower(name)` (o columna `citext`) en autores, editoriales y géneros, con upsert por nombre normalizado |
 | Catálogos por ID | `GET /api/authors/:id` (y equivalentes) o `?ids=` en los listados, para resolver las etiquetas de los filtros sin traer 50 registros |
-| Revocación de sesiones | Columna `token_version` en `users` incluida en el JWT y verificada por la estrategia: el logout (o un cambio de contraseña) la incrementa e invalida los tokens emitidos antes, sin esperar su expiración |
 | Gestión de catálogos | Pantalla para renombrar o fusionar autores, editoriales y géneros, y ocultar de los filtros los que no tienen libros activos |
 | Auditoría avanzada | Filtros por usuario y rango de fechas, y enlace desde cada registro al libro afectado |
 | Exportación con manejo de errores | Descarga vía `fetch` + `Blob` con `withCredentials`: ante un 401 redirige al login y ante otros errores muestra un aviso, en lugar de descargar el cuerpo del error |

@@ -19,6 +19,7 @@ erDiagram
         text email UK "único"
         text password_hash "Argon2id"
         text name
+        int token_version "revoca sesiones"
         timestamp created_at
         timestamp updated_at
     }
@@ -72,7 +73,7 @@ erDiagram
 
 | Tabla | Propósito |
 |---|---|
-| `users` | Usuarios internos de la tienda. Se crean con el seed; no hay registro público. |
+| `users` | Usuarios internos de la tienda. Se crean con el seed; no hay registro público. `token_version` viaja en el JWT y el logout lo incrementa para invalidar las sesiones. |
 | `authors` | Autores, con nombre único. |
 | `publishers` | Editoriales, con nombre único. |
 | `genres` | Géneros, con nombre único. |
@@ -90,10 +91,12 @@ El modelo está en tercera forma normal:
   `genreName`; el backend normaliza el texto (`trim`) y hace upsert por nombre dentro de la misma
   transacción que guarda el libro. El usuario elige un valor existente o crea uno nuevo sin
   pasos adicionales.
-- **La unicidad del nombre distingue mayúsculas.** "Planeta" y "planeta" serían dos registros;
-  el formulario lo previene reutilizando el nombre existente cuando el texto coincide sin
-  distinguir mayúsculas. La unicidad insensible a mayúsculas (índice único sobre
-  `lower(name)` o columna `citext`) está en el Roadmap del README.
+- **Nombres únicos sin distinguir mayúsculas.** Además del único sobre `name`, autores,
+  editoriales y géneros tienen un índice único sobre `lower(name)`: "Planeta" y "planeta" no
+  pueden coexistir. Es un índice de expresión creado en una migración; Prisma no puede
+  declararlo en el schema, pero tampoco lo compara ni lo elimina (verificado con
+  `prisma migrate diff`). La columna sigue siendo `text`, así que el índice trigram de la
+  búsqueda sigue en uso.
 - **La disponibilidad no se almacena:** se deriva como `available = stock > 0`. Guardar ambos
   valores permitiría estados contradictorios.
 
