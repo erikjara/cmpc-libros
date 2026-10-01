@@ -428,6 +428,82 @@ describe('API de libros (e2e)', () => {
     expect(body.message).toEqual(['page no puede ser mayor a 1000000']);
   });
 
+  describe('caracteres de control en textos de entrada', () => {
+    const validBook = {
+      title: 'Libro con control',
+      authorName: 'Autor e2e',
+      publisherName: 'Editorial e2e',
+      genreName: 'Género e2e',
+      price: 1000,
+      stock: 1,
+    };
+
+    it.each([
+      ['title', 'El título'],
+      ['authorName', 'El autor'],
+      ['publisherName', 'La editorial'],
+      ['genreName', 'El género'],
+    ])(
+      'POST /api/books con NUL en %s responde 400 sin crear el libro',
+      async (field, label) => {
+        const { body } = await api()
+          .post('/api/books')
+          .set('Cookie', cookie)
+          .send({ ...validBook, [field]: 'a\u0000b' })
+          .expect(400);
+        expect(body).toMatchObject({
+          statusCode: 400,
+          error: 'Bad Request',
+          message: [`${label} contiene caracteres no permitidos`],
+          path: '/api/books',
+        });
+      },
+    );
+
+    it('PATCH con \\u0001 o \\u007f responde 400 y no modifica el libro', async () => {
+      const book = await createBook();
+      for (const title of ['x\u0001', 'x\u007f']) {
+        const { body } = await api()
+          .patch(`/api/books/${book.id}`)
+          .set('Cookie', cookie)
+          .send({ title })
+          .expect(400);
+        expect(body.message).toEqual([
+          'El título contiene caracteres no permitidos',
+        ]);
+      }
+      const { body } = await api()
+        .get(`/api/books/${book.id}`)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(body.data.title).toBe(book.title);
+    });
+
+    it('acepta tabs y saltos de línea en el body (se colapsan a un espacio)', async () => {
+      const book = await createBook({ title: 'Con\ttab\ny  salto' });
+      expect(book.title).toBe('Con tab y salto');
+    });
+
+    it.each([
+      ['/api/books?search=a%00b', 'search'],
+      ['/api/books?search=%01', 'search'],
+      ['/api/books/export?search=a%00b', 'search'],
+      ['/api/books/trash?search=a%7Fb', 'search'],
+      ['/api/authors?search=a%00b', 'search'],
+      ['/api/publishers?search=a%00b', 'search'],
+      ['/api/genres?search=a%00b', 'search'],
+      ['/api/audit-logs?entityId=a%00b', 'entityId'],
+    ])('GET %s responde 400', async (url, field) => {
+      const { body } = await api().get(url).set('Cookie', cookie).expect(400);
+      expect(body).toMatchObject({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: [`${field} contiene caracteres no permitidos`],
+        path: url,
+      });
+    });
+  });
+
   it('si falla la auditoría, la transacción se revierte y el libro no queda creado', async () => {
     vi.spyOn(ctx.app.get(AuditLogsRepository), 'create').mockRejectedValueOnce(
       new Error('fallo de auditoría'),

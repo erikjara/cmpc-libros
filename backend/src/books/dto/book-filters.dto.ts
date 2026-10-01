@@ -9,6 +9,7 @@ import {
   Matches,
 } from 'class-validator';
 import { trimToUndefined } from '../../common/transforms/string.transforms.js';
+import { NoControlChars } from '../../common/validation/no-control-chars.validator.js';
 import { SORT_PATTERN } from '../book-query.js';
 
 export class BookFiltersDto {
@@ -21,6 +22,7 @@ export class BookFiltersDto {
   @IsOptional()
   @Transform(trimToUndefined)
   @IsString({ message: 'search debe ser texto' })
+  @NoControlChars('search')
   @Length(1, 100, { message: 'search debe tener entre 1 y 100 caracteres' })
   search?: string;
 
