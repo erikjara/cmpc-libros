@@ -383,6 +383,7 @@ export const handlers = [
     const index = db.books.findIndex((item) => item.id === id)
     if (index === -1 || db.deletedBookIds.has(id)) return notFound(path)
     const body: unknown = await request.json()
+    db.bookPatches.push({ id, ifMatch: request.headers.get('If-Match'), body })
     const errors = validateBookInput(body, true)
     if (errors.length > 0) return badRequest(path, errors)
     const current = db.books[index]
