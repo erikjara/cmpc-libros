@@ -326,7 +326,6 @@ Evoluciones previstas para próximas versiones, con su diseño propuesto:
 | Almacenamiento S3/MinIO | Nueva clase `S3StorageService implements StorageService`, seleccionada por variable de entorno |
 | Export masivo asíncrono | Cola BullMQ + Redis, job que genera el archivo y notifica/descarga por URL firmada |
 | Varios autores por libro | Tabla puente `book_authors (book_id, author_id, position)` |
-| Papelera en la UI | Vista de libros eliminados usando `POST /books/:id/restore` (endpoint ya existe) |
 | Cliente tipado | `openapi-typescript` generado desde el Swagger del backend |
 | Tests e2e | Testcontainers (backend) y Playwright (frontend) |
 | Prisma 8 | Migrar cuando alcance GA; el acceso a datos está aislado en repositorios, lo que acota el cambio |
