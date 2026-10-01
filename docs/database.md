@@ -91,8 +91,8 @@ El modelo está en tercera forma normal:
   transacción que guarda el libro. El usuario elige un valor existente o crea uno nuevo sin
   pasos adicionales.
 - **La unicidad del nombre distingue mayúsculas.** "Planeta" y "planeta" serían dos registros;
-  el campo "elegir o crear" del formulario sugiere los valores existentes mientras se escribe
-  para guiar a reutilizarlos. La unicidad insensible a mayúsculas (índice único sobre
+  el formulario lo previene reutilizando el nombre existente cuando el texto coincide sin
+  distinguir mayúsculas. La unicidad insensible a mayúsculas (índice único sobre
   `lower(name)` o columna `citext`) está en el Roadmap del README.
 - **La disponibilidad no se almacena:** se deriva como `available = stock > 0`. Guardar ambos
   valores permitiría estados contradictorios.

@@ -257,8 +257,9 @@ Detalle completo:
   género; el backend lo normaliza y lo busca o crea dentro de la misma transacción que guarda el
   libro. El campo "elegir o crear" no necesita distinguir entre valores existentes y nuevos.
 - **Los nombres de autor, editorial y género distinguen mayúsculas.** "Planeta" y "planeta"
-  serían dos registros distintos; el campo "elegir o crear" sugiere los valores existentes
-  mientras se escribe para guiar a reutilizarlos. La unicidad insensible a mayúsculas está en el
+  serían dos registros distintos en la base. El formulario lo previene: si el texto escrito
+  coincide sin distinguir mayúsculas con un valor existente, usa el nombre tal como está guardado
+  ("planeta" → "Planeta"). La unicidad insensible a mayúsculas en la propia base está en el
   Roadmap.
 - **Eliminación reversible (soft delete)** con `deleted_at`: conserva el historial, permite
   restaurar y mantiene íntegra la auditoría.
@@ -295,6 +296,19 @@ Detalle completo:
   para Swagger y otros clientes.
 - **Argon2id para contraseñas**, primera recomendación de OWASP; bcrypt se considera legado y
   trunca las contraseñas a 72 bytes.
+- **Content-Security-Policy estricta en la SPA** (`script-src 'self'`, sin `unsafe-eval`). Por eso
+  zod se configura sin compilación JIT de validadores (`jitless`), que necesitaría `new Function`.
+- **Rate limit solo en el login** (5 intentos por minuto e IP, en memoria del proceso). Los
+  intentos fallidos se registran con email e IP. Suficiente para una instancia; con varias
+  réplicas se necesita un store compartido (ver Roadmap).
+- **Un único proxy de confianza.** `trust proxy = 1` asume exactamente nginx delante del backend;
+  la API no debe exponerse directamente, porque un `X-Forwarded-For` falsificado alteraría la IP
+  registrada y el rate limit.
+- **Imágenes validadas por contenido**, no por la extensión ni el `Content-Type` declarado: se
+  comprueba la firma de bytes de JPEG, PNG o WebP, el nombre en disco es un UUID (sin rutas del
+  cliente) y se sirven con `X-Content-Type-Options: nosniff`.
+- **Advertencia de secreto de demo.** Si `JWT_SECRET` es el valor de ejemplo, la API arranca pero
+  registra una advertencia al iniciar (ver "Checklist para producción").
 
 ### Frontend
 
@@ -331,6 +345,8 @@ Detalle completo:
 ```bash
 cd backend && npm run test:cov
 cd frontend && npm run test:cov
+# Integración (requiere PostgreSQL; por defecto el de desarrollo en localhost:5432)
+cd backend && npm run test:e2e
 ```
 
 - **Umbral forzado de 80 %** en líneas, ramas, funciones y sentencias, definido en
@@ -342,6 +358,11 @@ cd frontend && npm run test:cov
   transacción), controllers, parseo de orden y construcción de consultas, interceptor de
   respuestas, filtro de excepciones, guard y extracción del token, exportación CSV (escapado y
   BOM) y almacenamiento en disco con un directorio temporal.
+- **Integración contra PostgreSQL real** (`npm run test:e2e` en `backend/`): crea y migra una base
+  dedicada `cmpc_libros_test` y verifica lo que un mock no puede demostrar: que el guard global
+  protege todas las rutas, que el soft delete se respeta en listado, detalle, exportación, edición
+  e imagen, el rollback real de una transacción cuando falla la auditoría, el escape de `%` y `_`
+  en la búsqueda, la paginación estable, los errores 400/413 de imágenes y el CSV.
 - **Frontend:** hooks (debounce, parámetros de búsqueda, queries y mutaciones), cliente HTTP
   (manejo de 401 y errores), protección de rutas, login, tabla (orden reflejado en la URL),
   filtros, formulario (validación), selector de imagen y detalle, con MSW simulando la API.
@@ -365,8 +386,9 @@ GitHub Actions (`.github/workflows/ci.yml`) se ejecuta en cada push y en cada pu
 | Job | Pasos |
 |---|---|
 | Backend | `npm ci`, `prisma generate`, lint, typecheck, tests con cobertura |
+| Backend · integración | servicio `postgres:18-alpine`, migraciones sobre `cmpc_libros_test` y `npm run test:e2e` |
 | Frontend | `npm ci`, lint, typecheck, tests con cobertura |
-| Docker | valida `docker-compose.yml`, construye las imágenes, levanta el stack, espera los healthchecks y consulta `/api/health` a través de nginx |
+| Docker | valida `docker-compose.yml`, construye las imágenes, levanta el stack, espera los healthchecks y consulta `/api/health` y una ruta de la SPA a través de nginx |
 
 ## Roadmap
 
@@ -381,7 +403,10 @@ Evoluciones previstas para próximas versiones, con su diseño propuesto:
 | Varios autores por libro | Tabla puente `book_authors (book_id, author_id, position)` |
 | Papelera en la UI | Vista de libros eliminados usando `POST /books/:id/restore` (endpoint ya existe) |
 | Cliente tipado | `openapi-typescript` generado desde el Swagger del backend |
-| Tests e2e | Testcontainers (backend) y Playwright (frontend) |
+| Tests e2e de interfaz | Playwright contra el stack de Docker Compose en CI (login, listado, alta con imagen, eliminación) |
+| Base de integración aislada | Testcontainers para levantar un PostgreSQL efímero por suite, sin depender de una instancia local |
+| Rate limit distribuido | Throttler global con store en Redis y límites específicos para exportación y subida de imágenes |
+| Procesamiento de imágenes | Re-codificar las portadas con `sharp` (elimina contenido no gráfico) y generar miniaturas |
 | Prisma 8 | Migrar cuando alcance GA; el acceso a datos está aislado en repositorios, lo que acota el cambio |
 | Nombres de catálogo sin distinguir mayúsculas | Índice único sobre `lower(name)` (o columna `citext`) en autores, editoriales y géneros, con upsert por nombre normalizado |
 | Catálogos por ID | `GET /api/authors/:id` (y equivalentes) o `?ids=` en los listados, para resolver las etiquetas de los filtros sin traer 50 registros |
