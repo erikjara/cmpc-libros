@@ -35,6 +35,13 @@ describe('rutas de la aplicación', () => {
     expect(await screen.findByText('Administrador')).toBeInTheDocument()
   })
 
+  it('muestra la papelera en /trash dentro del layout', async () => {
+    renderApp('/trash')
+    expect(await screen.findByRole('heading', { name: 'Papelera' })).toBeInTheDocument()
+    expect(await screen.findByText('La papelera está vacía')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cerrar sesión' })).toBeInTheDocument()
+  })
+
   it('envía a /login sin sesión y vuelve a la ruta original tras iniciar sesión', async () => {
     db.sessionUser = null
     const { user, router } = renderApp('/books?page=2')

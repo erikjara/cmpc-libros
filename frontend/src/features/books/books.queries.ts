@@ -1,13 +1,24 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query'
 import { ApiError } from '@/lib/api-error'
-import type { Book, BookInput, BookListQuery } from '@/lib/api-types'
+import type { Book, BookInput, BookListQuery, TrashListQuery } from '@/lib/api-types'
 import { catalogKeys } from '@/features/catalog/catalog.queries'
-import { createBook, deleteBook, fetchBook, fetchBooks, updateBook, uploadBookImage } from './books.api'
+import {
+  createBook,
+  deleteBook,
+  fetchBook,
+  fetchBooks,
+  fetchTrash,
+  restoreBook,
+  updateBook,
+  uploadBookImage,
+} from './books.api'
 
 export const bookKeys = {
   all: ['books'] as const,
   lists: () => ['books', 'list'] as const,
   list: (query: BookListQuery) => ['books', 'list', query] as const,
+  trashLists: () => ['books', 'trash'] as const,
+  trash: (query: TrashListQuery) => ['books', 'trash', query] as const,
   detail: (id: string) => ['books', 'detail', id] as const,
 }
 
@@ -15,6 +26,14 @@ export function useBooksQuery(query: BookListQuery) {
   return useQuery({
     queryKey: bookKeys.list(query),
     queryFn: () => fetchBooks(query),
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useTrashQuery(query: TrashListQuery) {
+  return useQuery({
+    queryKey: bookKeys.trash(query),
+    queryFn: () => fetchTrash(query),
     placeholderData: keepPreviousData,
   })
 }
@@ -98,7 +117,27 @@ export function useDeleteBook() {
     onSuccess: async (_data, id) => {
       await queryClient.cancelQueries({ queryKey: bookKeys.detail(id), exact: true })
       removeQueryWhenUnobserved(queryClient, bookKeys.detail(id))
-      await queryClient.invalidateQueries({ queryKey: bookKeys.lists() })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: bookKeys.lists() }),
+        queryClient.invalidateQueries({ queryKey: bookKeys.trashLists() }),
+      ])
     },
   })
+}
+
+// Restaurar mueve el libro de la papelera al inventario: cambian ambos listados. Es una función
+// (no solo un hook) para que el "Deshacer" del toast funcione aunque la página ya se haya desmontado.
+export async function restoreBookAndRefresh(queryClient: QueryClient, id: string): Promise<Book> {
+  const book = await restoreBook(id)
+  queryClient.setQueryData(bookKeys.detail(book.id), book)
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: bookKeys.lists() }),
+    queryClient.invalidateQueries({ queryKey: bookKeys.trashLists() }),
+  ])
+  return book
+}
+
+export function useRestoreBook() {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn: (id: string) => restoreBookAndRefresh(queryClient, id) })
 }

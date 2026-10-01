@@ -2,11 +2,11 @@ import { DownloadIcon, PlusIcon } from 'lucide-react'
 import { useEffect } from 'react'
 import { Link } from 'react-router'
 import { Button, buttonVariants } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import { getErrorMessage } from '@/lib/api-error'
 import { EmptyState } from '@/shared/EmptyState'
 import { ListPagination } from '@/shared/ListPagination'
 import { QueryError } from '@/shared/QueryError'
+import { TableSkeleton } from '@/shared/TableSkeleton'
 import { buildExportUrl } from './books.api'
 import { useBooksQuery } from './books.queries'
 import { BooksFilters } from './BooksFilters'
@@ -14,17 +14,6 @@ import { BooksTable } from './BooksTable'
 import { useBookSearchParams } from './useBookSearchParams'
 
 const BOOK_NOUN = ['libro', 'libros'] as const
-
-function BooksTableSkeleton() {
-  return (
-    <div data-testid="books-skeleton" role="status" className="flex flex-col gap-2">
-      <span className="sr-only">Cargando…</span>
-      {Array.from({ length: 6 }, (_, index) => (
-        <Skeleton key={index} className="h-9 w-full" />
-      ))}
-    </div>
-  )
-}
 
 export function BooksListPage() {
   const { state, query, filters, setPage, setLimit, setFilters, setSorting, clearFilters, hasActiveFilters } =
@@ -64,7 +53,7 @@ export function BooksListPage() {
 
       <BooksFilters values={state} onChange={setFilters} onClear={clearFilters} hasActiveFilters={hasActiveFilters} />
 
-      {(booksQuery.isPending || lastPage !== null) && <BooksTableSkeleton />}
+      {(booksQuery.isPending || lastPage !== null) && <TableSkeleton data-testid="books-skeleton" />}
 
       {booksQuery.isError && result && (
         <div
