@@ -42,7 +42,7 @@ import type { RequestContext } from '../common/types/request-context.js';
 import { UUID_PARAM_PIPE } from '../common/validation/uuid-param.pipe.js';
 import { MAX_IMAGE_BYTES } from '../storage/image-type.js';
 import type { UploadedImage } from '../storage/storage.service.js';
-import type { BookDto } from './book.mapper.js';
+import type { BookDto, TrashedBookDto } from './book.mapper.js';
 import { BooksExportService } from './books-export.service.js';
 import { BooksService } from './books.service.js';
 import { exportFileName } from './csv.js';
@@ -50,6 +50,8 @@ import { BookFiltersDto } from './dto/book-filters.dto.js';
 import { BookListQueryDto } from './dto/book-list-query.dto.js';
 import { BookResponseDto } from './dto/book-response.dto.js';
 import { CreateBookDto } from './dto/create-book.dto.js';
+import { TrashQueryDto } from './dto/trash-query.dto.js';
+import { TrashedBookResponseDto } from './dto/trashed-book-response.dto.js';
 import { UpdateBookDto } from './dto/update-book.dto.js';
 
 type StreamableResponse = Parameters<StreamableFile['errorHandler']>[1];
@@ -116,6 +118,21 @@ export class BooksController {
     if (!res.destroyed) {
       (res as unknown as Response).destroy(error);
     }
+  }
+
+  // Declarada antes de ':id' para que "trash" no se interprete como id.
+  @Get('trash')
+  @ApiOperation({
+    summary: 'Papelera: libros eliminados, del más reciente al más antiguo',
+    description:
+      'Búsqueda en título y autor y paginación. Para recuperar un libro usa `POST /books/{id}/restore`.',
+  })
+  @ApiDataResponse(TrashedBookResponseDto, { paginated: true })
+  @ApiErrors(400)
+  listTrash(
+    @Query() query: TrashQueryDto,
+  ): Promise<PaginatedResult<TrashedBookDto>> {
+    return this.books.listTrash(query);
   }
 
   @Get(':id')

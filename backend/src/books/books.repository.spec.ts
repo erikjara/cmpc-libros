@@ -3,7 +3,11 @@ import { mockDeep, type DeepMockProxy } from 'vitest-mock-extended';
 import { Prisma } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { BOOK_ID, BOOK_INPUT, makeBook } from '../testing/book-fixtures.js';
-import { BOOK_INCLUDE, BooksRepository } from './books.repository.js';
+import {
+  BOOK_INCLUDE,
+  BooksRepository,
+  TRASH_ORDER_BY,
+} from './books.repository.js';
 
 describe('BooksRepository', () => {
   let prisma: DeepMockProxy<PrismaService>;
@@ -34,6 +38,47 @@ describe('BooksRepository', () => {
       include: BOOK_INCLUDE,
     });
     expect(prisma.book.count).toHaveBeenCalledWith({ where: query.where });
+  });
+
+  describe('findTrashPage', () => {
+    const deleted = makeBook({ deletedAt: new Date('2026-09-20T10:00:00Z') });
+
+    it('consulta solo eliminados, del más reciente al más antiguo y desempatando por id', async () => {
+      prisma.$transaction.mockResolvedValue([[deleted], 1] as never);
+
+      await expect(
+        repository.findTrashPage({ skip: 10, take: 10 }),
+      ).resolves.toEqual([[deleted], 1]);
+
+      const where = { deletedAt: { not: null } };
+      expect(TRASH_ORDER_BY).toEqual([{ deletedAt: 'desc' }, { id: 'asc' }]);
+      expect(prisma.book.findMany).toHaveBeenCalledWith({
+        where,
+        orderBy: TRASH_ORDER_BY,
+        skip: 10,
+        take: 10,
+        include: BOOK_INCLUDE,
+      });
+      expect(prisma.book.count).toHaveBeenCalledWith({ where });
+    });
+
+    it('busca en título y autor con los comodines escapados', async () => {
+      prisma.$transaction.mockResolvedValue([[], 0] as never);
+
+      await repository.findTrashPage({ search: '100%', skip: 0, take: 10 });
+
+      const where = {
+        deletedAt: { not: null },
+        OR: [
+          { title: { contains: '100\\%', mode: 'insensitive' } },
+          { author: { name: { contains: '100\\%', mode: 'insensitive' } } },
+        ],
+      };
+      expect(prisma.book.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where }),
+      );
+      expect(prisma.book.count).toHaveBeenCalledWith({ where });
+    });
   });
 
   it('findBatch sin cursor pide el primer lote', async () => {

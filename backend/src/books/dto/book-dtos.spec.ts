@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { flattenValidationErrors } from '../../common/validation/validation-exception.factory.js';
 import { BookListQueryDto } from './book-list-query.dto.js';
 import { CreateBookDto } from './create-book.dto.js';
+import { TrashQueryDto } from './trash-query.dto.js';
 import { UpdateBookDto } from './update-book.dto.js';
 
 async function errorsFor<T extends object>(
@@ -113,5 +114,44 @@ describe('BookListQueryDto', () => {
     expect(await errorsFor(BookListQueryDto, { page: '1e20' })).toContain(
       'page no puede ser mayor a 1000000',
     );
+  });
+});
+
+describe('TrashQueryDto', () => {
+  it('usa page=1 y limit=10 por defecto y trata la búsqueda vacía como ausente', async () => {
+    const query = plainToInstance(TrashQueryDto, { search: '   ' });
+    expect(await validate(query)).toEqual([]);
+    expect(query).toMatchObject({ page: 1, limit: 10 });
+    expect(query.search).toBeUndefined();
+  });
+
+  it('convierte page/limit y recorta la búsqueda', async () => {
+    const query = plainToInstance(TrashQueryDto, {
+      page: '2',
+      limit: '25',
+      search: '  allende ',
+    });
+    expect(await validate(query)).toEqual([]);
+    expect(query).toMatchObject({ page: 2, limit: 25, search: 'allende' });
+  });
+
+  it('rechaza límites fuera de rango y una búsqueda de más de 100 caracteres', async () => {
+    const errors = await errorsFor(TrashQueryDto, {
+      page: '1000001',
+      limit: '101',
+      search: 'x'.repeat(101),
+    });
+    expect(errors).toContain('page no puede ser mayor a 1000000');
+    expect(errors).toContain('limit no puede ser mayor a 100');
+    expect(errors).toContain('search debe tener entre 1 y 100 caracteres');
+  });
+
+  it('rechaza los filtros y el orden del listado (parámetros desconocidos)', async () => {
+    const errors = await errorsFor(TrashQueryDto, {
+      sort: 'title:asc',
+      authorId: '3f2b8a54-5f0e-4f7c-9a57-3a5f9b2f6e10',
+    });
+    expect(errors).toContain('La propiedad "sort" no está permitida');
+    expect(errors).toContain('La propiedad "authorId" no está permitida');
   });
 });

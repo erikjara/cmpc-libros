@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildBookQuery,
   escapeLike,
+  searchCondition,
   parseSort,
   SORT_PATTERN,
 } from './book-query.js';
@@ -122,5 +123,20 @@ describe('buildBookQuery', () => {
     expect(() => buildBookQuery({ sort: 'foo:asc' })).toThrow(
       BadRequestException,
     );
+  });
+});
+
+describe('searchCondition', () => {
+  it('sin texto no agrega condición', () => {
+    expect(searchCondition(undefined)).toEqual({});
+  });
+
+  it('busca en título y autor, con comodines escapados', () => {
+    expect(searchCondition('50%')).toEqual({
+      OR: [
+        { title: { contains: '50\\%', mode: 'insensitive' } },
+        { author: { name: { contains: '50\\%', mode: 'insensitive' } } },
+      ],
+    });
   });
 });

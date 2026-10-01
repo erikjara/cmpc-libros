@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeBook } from '../testing/book-fixtures.js';
-import { toBookDto } from './book.mapper.js';
+import { toBookDto, toTrashedBookDto } from './book.mapper.js';
 
 describe('toBookDto', () => {
   it('serializa precio como number, fechas ISO y available derivado', () => {
@@ -23,5 +23,16 @@ describe('toBookDto', () => {
     const dto = toBookDto(makeBook({ stock: 0, imageKey: 'abc.jpg' }));
     expect(dto.available).toBe(false);
     expect(dto.imageUrl).toBe('/api/uploads/abc.jpg');
+  });
+});
+
+describe('toTrashedBookDto', () => {
+  it('agrega la fecha de eliminación en ISO 8601 a los campos del libro', () => {
+    const deletedAt = new Date('2026-09-20T15:30:00.000Z');
+    const book = makeBook({ deletedAt });
+    expect(toTrashedBookDto({ ...book, deletedAt })).toEqual({
+      ...toBookDto(book),
+      deletedAt: '2026-09-20T15:30:00.000Z',
+    });
   });
 });

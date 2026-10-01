@@ -74,6 +74,8 @@ model Book {
   @@index([createdAt], where: { deletedAt: null }, map: "books_active_created_at_idx")
   @@index([title], where: { deletedAt: null }, map: "books_active_title_idx")
   @@index([price], where: { deletedAt: null }, map: "books_active_price_idx")
+  // Papelera: solo indexa los eliminados (pocos) y sirve al orden deleted_at DESC.
+  @@index([deletedAt(sort: Desc)], where: { deletedAt: { not: null } }, map: "books_trashed_deleted_at_idx")
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "books_title_trgm_idx")
   @@map("books")
 }

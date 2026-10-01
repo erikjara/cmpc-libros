@@ -24,10 +24,11 @@ import {
   REQUEST_CONTEXT,
 } from '../testing/book-fixtures.js';
 import { JPEG_BYTES } from '../testing/image-fixtures.js';
-import { toBookDto } from './book.mapper.js';
+import { toBookDto, toTrashedBookDto } from './book.mapper.js';
 import type { BooksRepository } from './books.repository.js';
 import { BOOK_MODIFIED, BooksService } from './books.service.js';
 import type { BookListQueryDto } from './dto/book-list-query.dto.js';
+import type { TrashQueryDto } from './dto/trash-query.dto.js';
 
 function uniqueViolation(modelName: string, table: string) {
   return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
@@ -105,6 +106,45 @@ describe('BooksService', () => {
         total: 5,
         totalPages: 1,
       });
+    });
+  });
+
+  describe('listTrash', () => {
+    it('pagina los eliminados con la búsqueda y agrega deletedAt', async () => {
+      const deletedAt = new Date('2026-09-20T15:30:00.000Z');
+      const deleted = { ...makeBook({ deletedAt }), deletedAt };
+      repository.findTrashPage.mockResolvedValue([[deleted], 11]);
+
+      const result = await service.listTrash({
+        page: 2,
+        limit: 5,
+        search: 'allende',
+      } as TrashQueryDto);
+
+      expect(repository.findTrashPage).toHaveBeenCalledWith({
+        search: 'allende',
+        skip: 5,
+        take: 5,
+      });
+      expect(result).toBeInstanceOf(PaginatedResult);
+      expect(result.items).toEqual([toTrashedBookDto(deleted)]);
+      expect(result.meta).toEqual({
+        page: 2,
+        limit: 5,
+        total: 11,
+        totalPages: 3,
+      });
+    });
+
+    it('no audita (es una lectura)', async () => {
+      repository.findTrashPage.mockResolvedValue([[], 0]);
+      const result = await service.listTrash({
+        page: 1,
+        limit: 10,
+      } as TrashQueryDto);
+      expect(result.items).toEqual([]);
+      expect(result.meta.totalPages).toBe(0);
+      expect(audit.record).not.toHaveBeenCalled();
     });
   });
 

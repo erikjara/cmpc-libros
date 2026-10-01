@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { DbClient } from '../prisma/prisma.types.js';
+import { searchCondition } from './book-query.js';
 
 export const BOOK_INCLUDE = {
   author: true,
@@ -29,6 +30,21 @@ export interface BookPageQuery {
   take: number;
 }
 
+/** Libro eliminado lógicamente: `deletedAt` siempre presente. */
+export type TrashedBookWithRelations = BookWithRelations & { deletedAt: Date };
+
+export interface TrashPageQuery {
+  search?: string;
+  skip: number;
+  take: number;
+}
+
+/** Papelera: eliminación más reciente primero; `id` desempata para paginar de forma estable. */
+export const TRASH_ORDER_BY = [
+  { deletedAt: 'desc' },
+  { id: 'asc' },
+] satisfies Prisma.BookOrderByWithRelationInput[];
+
 export interface BookBatchQuery {
   where: Prisma.BookWhereInput;
   orderBy: Prisma.BookOrderByWithRelationInput[];
@@ -53,6 +69,27 @@ export class BooksRepository {
       this.prisma.book.findMany({ ...query, include: BOOK_INCLUDE }),
       this.prisma.book.count({ where: query.where }),
     ]);
+  }
+
+  async findTrashPage(
+    query: TrashPageQuery,
+  ): Promise<[TrashedBookWithRelations[], number]> {
+    const where: Prisma.BookWhereInput = {
+      deletedAt: { not: null },
+      ...searchCondition(query.search),
+    };
+    const [books, total] = await this.prisma.$transaction([
+      this.prisma.book.findMany({
+        where,
+        orderBy: TRASH_ORDER_BY,
+        skip: query.skip,
+        take: query.take,
+        include: BOOK_INCLUDE,
+      }),
+      this.prisma.book.count({ where }),
+    ]);
+    // El filtro `deletedAt: { not: null }` garantiza la fecha de eliminación.
+    return [books as TrashedBookWithRelations[], total];
   }
 
   /** Lote para exportación: paginación por cursor sobre el mismo orden del listado. */

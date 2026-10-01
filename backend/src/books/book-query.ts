@@ -86,17 +86,27 @@ export function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
-/** Traduce los filtros de la API a `where` y `orderBy` de Prisma (siempre excluye eliminados). */
-export function buildBookQuery(filters: BookFilters): BookQuery {
-  const where: Prisma.BookWhereInput = { deletedAt: null };
-
-  if (filters.search) {
-    const contains = escapeLike(filters.search);
-    where.OR = [
+/** Búsqueda ILIKE en título y autor; sin texto no agrega condición. */
+export function searchCondition(search?: string): Prisma.BookWhereInput {
+  if (!search) {
+    return {};
+  }
+  const contains = escapeLike(search);
+  return {
+    OR: [
       { title: { contains, mode: 'insensitive' } },
       { author: { name: { contains, mode: 'insensitive' } } },
-    ];
-  }
+    ],
+  };
+}
+
+/** Traduce los filtros de la API a `where` y `orderBy` de Prisma (siempre excluye eliminados). */
+export function buildBookQuery(filters: BookFilters): BookQuery {
+  const where: Prisma.BookWhereInput = {
+    deletedAt: null,
+    ...searchCondition(filters.search),
+  };
+
   if (filters.authorId) {
     where.authorId = filters.authorId;
   }

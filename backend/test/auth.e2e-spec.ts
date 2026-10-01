@@ -69,7 +69,11 @@ describe('Autenticación (e2e)', () => {
         route,
       );
     }
-    expect(protectedRoutes.length).toBeGreaterThanOrEqual(12);
+    expect(protectedRoutes.length).toBeGreaterThanOrEqual(13);
+    expect(protectedRoutes).toContainEqual({
+      method: 'GET',
+      path: '/api/books/trash',
+    });
 
     for (const { method, path } of protectedRoutes) {
       const url = path.replace(/:[A-Za-z]+/g, SAMPLE_ID);
