@@ -14,7 +14,10 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const FILTER_PARAMS = ['search', 'authorId', 'publisherId', 'genreId', 'available', 'sort']
 const LIST_PARAMS = [...FILTER_PARAMS, 'page', 'limit']
 const BOOK_INPUT_FIELDS = ['title', 'authorName', 'publisherName', 'genreName', 'price', 'stock'] as const
-const CSV_HEADER = 'ID,Título,Autor,Editorial,Género,Precio,Stock,Disponible,Creado'
+export const STALE_BOOK_MESSAGE = 'El libro fue modificado por otra persona. Recarga para ver la versión actual.'
+// CSV para Excel en es-CL: separador ';' y precio con coma decimal, sin separador de miles.
+const CSV_SEPARATOR = ';'
+const CSV_HEADER = ['ID', 'Título', 'Autor', 'Editorial', 'Género', 'Precio', 'Stock', 'Disponible', 'Creado'].join(CSV_SEPARATOR)
 
 export function errorBody(statusCode: number, error: string, message: string | string[], path = '/api'): ApiErrorBody {
   return {
@@ -33,6 +36,11 @@ function unauthorized(path: string) {
 
 function notFound(path: string) {
   return HttpResponse.json(errorBody(404, 'Not Found', 'Recurso no encontrado', path), { status: 404 })
+}
+
+// Bloqueo optimista: las respuestas con un libro llevan ETag = "<updatedAt>".
+function bookResponse(book: Book, status = 200) {
+  return HttpResponse.json({ data: book }, { status, headers: { ETag: `"${book.updatedAt}"` } })
 }
 
 function badRequest(path: string, message: string | string[]) {
@@ -120,7 +128,11 @@ function validateBookInput(body: unknown, partial: boolean): string[] {
 function csvCell(value: string): string {
   // Protección contra inyección de fórmulas y escape RFC 4180.
   const safe = /^[=+\-@]/.test(value) ? `'${value}` : value
-  return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
+  return /[";\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
+}
+
+function csvPrice(price: number): string {
+  return Number.isInteger(price) ? String(price) : price.toFixed(2).replace('.', ',')
 }
 
 function toCsv(books: Book[]): string {
@@ -131,13 +143,13 @@ function toCsv(books: Book[]): string {
       book.author.name,
       book.publisher.name,
       book.genre.name,
-      String(book.price),
+      csvPrice(book.price),
       String(book.stock),
       book.available ? 'Sí' : 'No',
       book.createdAt,
     ]
       .map(csvCell)
-      .join(','),
+      .join(CSV_SEPARATOR),
   )
   return `\uFEFF${[CSV_HEADER, ...rows].join('\r\n')}`
 }
@@ -228,6 +240,17 @@ function buildBook(input: BookInput, base?: Book): Book {
   }
 }
 
+function isSameInput(left: BookInput, right: BookInput): boolean {
+  return (
+    left.title.trim() === right.title &&
+    left.authorName.trim() === right.authorName &&
+    left.publisherName.trim() === right.publisherName &&
+    left.genreName.trim() === right.genreName &&
+    left.price === right.price &&
+    left.stock === right.stock
+  )
+}
+
 function toInput(book: Book): BookInput {
   return {
     title: book.title,
@@ -300,7 +323,7 @@ export const handlers = [
     if (!UUID_REGEX.test(id)) return badRequest(path, 'Validation failed (uuid is expected)')
     const book = findActiveBook(id)
     if (!book) return notFound(path)
-    return HttpResponse.json({ data: book })
+    return bookResponse(book)
   }),
 
   http.post('/api/books', async ({ request }) => {
@@ -310,7 +333,7 @@ export const handlers = [
     if (errors.length > 0) return badRequest('/api/books', errors)
     const book = buildBook(body as BookInput)
     db.books.push(book)
-    return HttpResponse.json({ data: book }, { status: 201 })
+    return bookResponse(book, 201)
   }),
 
   http.patch<PathParams<'id'>>('/api/books/:id', async ({ params, request }) => {
@@ -323,10 +346,18 @@ export const handlers = [
     const body: unknown = await request.json()
     const errors = validateBookInput(body, true)
     if (errors.length > 0) return badRequest(path, errors)
-    const patch = body as Partial<BookInput>
-    const updated = buildBook({ ...toInput(db.books[index]), ...patch }, db.books[index])
+    const current = db.books[index]
+    // If-Match es opcional: sin él, gana la última escritura.
+    const ifMatch = request.headers.get('If-Match')
+    if (ifMatch !== null && ifMatch !== `"${current.updatedAt}"`) {
+      return HttpResponse.json(errorBody(412, 'Precondition Failed', STALE_BOOK_MESSAGE, path), { status: 412 })
+    }
+    const next = { ...toInput(current), ...(body as Partial<BookInput>) }
+    // Sin cambios efectivos se devuelve el libro tal cual, sin tocar updatedAt.
+    if (isSameInput(next, toInput(current))) return bookResponse(current)
+    const updated = buildBook(next, current)
     db.books[index] = updated
-    return HttpResponse.json({ data: updated })
+    return bookResponse(updated)
   }),
 
   // Soft delete: el libro deja de listarse y de leerse, pero se puede restaurar.
@@ -347,7 +378,7 @@ export const handlers = [
     const book = db.books.find((item) => item.id === id)
     if (!book) return notFound(path)
     db.deletedBookIds.delete(book.id)
-    return HttpResponse.json({ data: book })
+    return bookResponse(book)
   }),
 
   http.post<PathParams<'id'>>('/api/books/:id/image', async ({ params, request }) => {
@@ -372,7 +403,8 @@ export const handlers = [
       )
     }
     book.imageUrl = `/api/uploads/${book.id}.webp`
-    return HttpResponse.json({ data: book })
+    book.updatedAt = new Date().toISOString()
+    return bookResponse(book)
   }),
 
   catalogHandler('authors'),
