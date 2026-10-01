@@ -458,6 +458,34 @@ describe('API de libros (e2e)', () => {
     ).resolves.toBe(0);
   });
 
+  it('reutiliza autor, editorial y género aunque el nombre difiera en espacios', async () => {
+    const first = await createBook({
+      title: '  Espacios   uno ',
+      authorName: '  Autor   Nuevo ',
+      publisherName: 'Editorial \t Nueva',
+      genreName: 'Género\n\nNuevo',
+    });
+    const second = await createBook({
+      title: 'Espacios dos',
+      authorName: 'Autor Nuevo',
+      publisherName: 'Editorial Nueva',
+      genreName: 'Género Nuevo',
+    });
+
+    expect(first.title).toBe('Espacios uno');
+    expect(first.author).toEqual(second.author);
+    expect(first.author.name).toBe('Autor Nuevo');
+    const stored = await ctx.prisma.book.findMany({
+      where: { id: { in: [first.id, second.id] } },
+      select: { authorId: true, publisherId: true, genreId: true },
+    });
+    expect(stored).toHaveLength(2);
+    expect(stored[0]).toEqual(stored[1]);
+    await expect(
+      ctx.prisma.author.count({ where: { name: { contains: 'Nuevo' } } }),
+    ).resolves.toBe(1);
+  });
+
   it('creaciones simultáneas con el mismo autor nuevo no fallan por la carrera del upsert', async () => {
     const responses = await Promise.all(
       Array.from({ length: 6 }, (_, index) =>
