@@ -10,7 +10,7 @@ const SORT_REGEX = new RegExp(
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-// Enmienda §11.6: parámetros desconocidos → 400; /books/export no acepta page/limit.
+// La API responde 400 ante parámetros de query desconocidos; /books/export no acepta page/limit.
 const FILTER_PARAMS = ['search', 'authorId', 'publisherId', 'genreId', 'available', 'sort']
 const LIST_PARAMS = [...FILTER_PARAMS, 'page', 'limit']
 const BOOK_INPUT_FIELDS = ['title', 'authorName', 'publisherName', 'genreName', 'price', 'stock'] as const
@@ -39,7 +39,7 @@ function badRequest(path: string, message: string | string[]) {
   return HttpResponse.json(errorBody(400, 'Bad Request', message, path), { status: 400 })
 }
 
-// Los filtros vacíos o solo espacios se tratan como ausentes (enmienda §11.6).
+// Los filtros vacíos o solo espacios se tratan como ausentes.
 function queryParam(url: URL, key: string): string | undefined {
   return url.searchParams.get(key)?.trim() || undefined
 }
@@ -81,7 +81,7 @@ function validateName(errors: string[], field: string, value: unknown, max: numb
   }
 }
 
-// Validación básica de BookInput según el contrato; `partial` para PATCH (al menos un campo).
+// Validación básica de BookInput como en la API; `partial` para PATCH (al menos un campo).
 function validateBookInput(body: unknown, partial: boolean): string[] {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return ['El cuerpo debe ser un objeto']
   const input = body as Record<string, unknown>
@@ -339,7 +339,7 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 })
   }),
 
-  // Enmienda §11.7: restaurar un libro no eliminado responde 200 con el libro.
+  // Restaurar un libro no eliminado responde 200 con el libro.
   http.post<PathParams<'id'>>('/api/books/:id/restore', ({ params }) => {
     const id = String(params.id)
     const path = `/api/books/${id}/restore`
