@@ -576,6 +576,7 @@ Evoluciones previstas para próximas versiones, con su diseño propuesto:
 | Catálogos por ID | `GET /api/authors/:id` (y equivalentes) o `?ids=` en los listados, para resolver las etiquetas de los filtros sin traer 50 registros |
 | Gestión de catálogos | Pantalla para renombrar o fusionar autores, editoriales y géneros, y ocultar de los filtros los que no tienen libros activos |
 | Auditoría avanzada | Filtros por usuario y rango de fechas, y enlace desde cada registro al libro afectado |
+| Orden alfabético en español | Collation ICU explícita (`es-CL-x-icu`) en las columnas que se ordenan (título y nombres de catálogo), declarada en una migración y con los índices recreados con esa collation; hoy el orden depende de la imagen de PostgreSQL (Alpine/musl ordena por bytes, y "Ángel" queda después de "Z") |
 | Exportación con manejo de errores | Descarga vía `fetch` + `Blob` con `withCredentials`: ante un 401 redirige al login y ante otros errores muestra un aviso, en lugar de descargar el cuerpo del error |
 
 ## Estructura del repositorio
