@@ -1,5 +1,5 @@
 import { http, HttpResponse, type PathParams } from 'msw'
-import type { ApiErrorBody, Book, BookInput, CatalogItem } from '@/lib/api-types'
+import type { ApiErrorBody, Book, BookInput, CatalogItem, TrashedBook } from '@/lib/api-types'
 import { ADMIN_PASSWORD, adminUser } from './fixtures'
 import { db, findActiveBook, upsertCatalogItem } from './db'
 
@@ -13,6 +13,9 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 // La API responde 400 ante parámetros de query desconocidos; /books/export no acepta page/limit.
 const FILTER_PARAMS = ['search', 'authorId', 'publisherId', 'genreId', 'available', 'sort']
 const LIST_PARAMS = [...FILTER_PARAMS, 'page', 'limit']
+const TRASH_PARAMS = ['search', 'page', 'limit']
+const AUDIT_PARAMS = ['entity', 'entityId', 'page', 'limit']
+const MAX_PAGE = 1_000_000
 const BOOK_INPUT_FIELDS = ['title', 'authorName', 'publisherName', 'genreName', 'price', 'stock'] as const
 export const STALE_BOOK_MESSAGE = 'El libro fue modificado por otra persona. Recarga para ver la versión actual.'
 // CSV para Excel en es-CL: separador ';' y precio con coma decimal, sin separador de miles.
@@ -81,6 +84,35 @@ function validateBookQuery(url: URL, allowed: readonly string[]): string[] {
   const limit = queryParam(url, 'limit')
   if (limit && !isIntInRange(limit, 1, 100)) errors.push('limit must be between 1 and 100')
   return errors
+}
+
+function validateUnknownParams(url: URL, allowed: readonly string[]): string[] {
+  return [...new Set(url.searchParams.keys())]
+    .filter((key) => !allowed.includes(key))
+    .map((key) => `property ${key} should not exist`)
+}
+
+function validatePagination(url: URL): string[] {
+  const errors: string[] = []
+  const page = queryParam(url, 'page')
+  if (page && !isIntInRange(page, 1, MAX_PAGE)) errors.push(`page debe estar entre 1 y ${MAX_PAGE}`)
+  const limit = queryParam(url, 'limit')
+  if (limit && !isIntInRange(limit, 1, 100)) errors.push('limit debe estar entre 1 y 100')
+  return errors
+}
+
+function paginate<T>(items: T[], url: URL) {
+  const page = Number(queryParam(url, 'page') ?? 1)
+  const limit = Number(queryParam(url, 'limit') ?? 10)
+  const total = items.length
+  return {
+    data: items.slice((page - 1) * limit, page * limit),
+    meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  }
+}
+
+function matchesSearch(book: Book, search: string | undefined): boolean {
+  return !search || book.title.toLowerCase().includes(search) || book.author.name.toLowerCase().includes(search)
 }
 
 function validateName(errors: string[], field: string, value: unknown, max: number): void {
@@ -198,9 +230,7 @@ function filterBooks(url: URL): Book[] {
   return db.books.filter(
     (book) =>
       !db.deletedBookIds.has(book.id) &&
-      (!search ||
-        book.title.toLowerCase().includes(search) ||
-        book.author.name.toLowerCase().includes(search)) &&
+      matchesSearch(book, search) &&
       (!authorId || book.author.id === authorId) &&
       (!publisherId || book.publisher.id === publisherId) &&
       (!genreId || book.genre.id === genreId) &&
@@ -291,13 +321,7 @@ export const handlers = [
     const errors = validateBookQuery(url, LIST_PARAMS)
     if (errors.length > 0) return badRequest('/api/books', errors)
     const sort = queryParam(url, 'sort') ?? 'createdAt:desc'
-    const page = Number(queryParam(url, 'page') ?? 1)
-    const limit = Number(queryParam(url, 'limit') ?? 10)
-    const sorted = applySort(filterBooks(url), sort)
-    const total = sorted.length
-    const totalPages = Math.ceil(total / limit)
-    const data = sorted.slice((page - 1) * limit, page * limit)
-    return HttpResponse.json({ data, meta: { page, limit, total, totalPages } })
+    return HttpResponse.json(paginate(applySort(filterBooks(url), sort), url))
   }),
 
   // Debe ir antes de /api/books/:id para que "export" no se interprete como id.
@@ -314,6 +338,21 @@ export const handlers = [
         'Content-Disposition': `attachment; filename="libros-${date}.csv"`,
       },
     })
+  }),
+
+  // Papelera: también antes de /api/books/:id. Orden fijo deletedAt desc, id asc.
+  http.get('/api/books/trash', ({ request }) => {
+    if (!db.sessionUser) return unauthorized('/api/books/trash')
+    const url = new URL(request.url)
+    const errors = [...validateUnknownParams(url, TRASH_PARAMS), ...validatePagination(url)]
+    const search = queryParam(url, 'search')
+    if (search && search.length > 100) errors.push('search must be shorter than or equal to 100 characters')
+    if (errors.length > 0) return badRequest('/api/books/trash', errors)
+    const trashed: TrashedBook[] = db.books
+      .filter((book) => db.deletedBookIds.has(book.id) && matchesSearch(book, search?.toLowerCase()))
+      .map((book) => ({ ...book, deletedAt: db.deletedBookIds.get(book.id) ?? '' }))
+      .sort((a, b) => b.deletedAt.localeCompare(a.deletedAt) || a.id.localeCompare(b.id))
+    return HttpResponse.json(paginate(trashed, url))
   }),
 
   http.get<PathParams<'id'>>('/api/books/:id', ({ params }) => {
@@ -366,7 +405,7 @@ export const handlers = [
     const path = `/api/books/${id}`
     if (!db.sessionUser) return unauthorized(path)
     if (!UUID_REGEX.test(id) || !findActiveBook(id)) return notFound(path)
-    db.deletedBookIds.add(id)
+    db.deletedBookIds.set(id, new Date().toISOString())
     return new HttpResponse(null, { status: 204 })
   }),
 
@@ -405,6 +444,21 @@ export const handlers = [
     book.imageUrl = `/api/uploads/${book.id}.webp`
     book.updatedAt = new Date().toISOString()
     return bookResponse(book)
+  }),
+
+  http.get('/api/audit-logs', ({ request }) => {
+    if (!db.sessionUser) return unauthorized('/api/audit-logs')
+    const url = new URL(request.url)
+    const errors = [...validateUnknownParams(url, AUDIT_PARAMS), ...validatePagination(url)]
+    const entity = queryParam(url, 'entity')
+    if (entity && entity !== 'Book' && entity !== 'User') errors.push('entity debe ser Book o User')
+    const entityId = queryParam(url, 'entityId')
+    if (entityId && entityId.length > 64) errors.push('entityId no puede superar 64 caracteres')
+    if (errors.length > 0) return badRequest('/api/audit-logs', errors)
+    const logs = db.auditLogs
+      .filter((log) => (!entity || log.entity === entity) && (!entityId || log.entityId === entityId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id))
+    return HttpResponse.json(paginate(logs, url))
   }),
 
   catalogHandler('authors'),

@@ -104,4 +104,36 @@ describe('BookDetailPage', () => {
     await user.click(screen.getByRole('button', { name: 'Eliminar' }))
     expect(await screen.findByText('Recurso no encontrado')).toBeInTheDocument()
   })
+
+  it('el toast de eliminación ofrece "Deshacer", que restaura el libro e invalida los listados', async () => {
+    const { user, queryClient } = renderDetail(withImage.id)
+    const listKey = bookKeys.list({ page: 1, limit: 10 })
+    const trashKey = bookKeys.trash({ page: 1, limit: 10 })
+    await user.click(await screen.findByRole('button', { name: 'Eliminar' }))
+    await screen.findByRole('alertdialog')
+    await user.click(screen.getByRole('button', { name: 'Eliminar' }))
+    expect(await screen.findByTestId('location')).toHaveTextContent('/books')
+    queryClient.setQueryData(listKey, { data: [], meta: { page: 1, limit: 10, total: 0, totalPages: 0 } })
+    queryClient.setQueryData(trashKey, { data: [], meta: { page: 1, limit: 10, total: 0, totalPages: 0 } })
+    await user.click(await screen.findByRole('button', { name: 'Deshacer' }))
+    expect(await screen.findByText('Libro restaurado')).toBeInTheDocument()
+    expect(db.deletedBookIds.has(withImage.id)).toBe(false)
+    expect(queryClient.getQueryState(listKey)?.isInvalidated).toBe(true)
+    expect(queryClient.getQueryState(trashKey)?.isInvalidated).toBe(true)
+  })
+
+  it('si "Deshacer" falla muestra el error', async () => {
+    server.use(
+      http.post('/api/books/:id/restore', () =>
+        HttpResponse.json(errorBody(500, 'Internal Server Error', 'Error interno del servidor'), { status: 500 }),
+      ),
+    )
+    const { user } = renderDetail(withImage.id)
+    await user.click(await screen.findByRole('button', { name: 'Eliminar' }))
+    await screen.findByRole('alertdialog')
+    await user.click(screen.getByRole('button', { name: 'Eliminar' }))
+    await user.click(await screen.findByRole('button', { name: 'Deshacer' }))
+    expect(await screen.findByText('Error interno del servidor')).toBeInTheDocument()
+    expect(db.deletedBookIds.has(withImage.id)).toBe(true)
+  })
 })

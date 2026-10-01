@@ -1,12 +1,13 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
-import { createMemoryRouter } from 'react-router'
+import { createMemoryRouter, type RouteObject } from 'react-router'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { httpClient } from '@/lib/http-client'
 import { db } from '@/test/msw/db'
 import { errorBody } from '@/test/msw/handlers'
 import { server } from '@/test/msw/server'
 import { createTestQueryClient, renderRoutes } from '@/test/render'
+import { buildBooks } from '@/test/msw/fixtures'
 import { createRoutes } from './routes'
 import { installSessionExpiredHandler, SESSION_EXPIRED_MESSAGE } from './session-expired'
 
@@ -27,12 +28,63 @@ function renderApp(initialEntry: string) {
   return utils
 }
 
+function flattenRoutes(routes: RouteObject[]): RouteObject[] {
+  return routes.flatMap((route) => [route, ...flattenRoutes(route.children ?? [])])
+}
+
+describe('división de código', () => {
+  it.each(['/login', 'books/new', 'books/:id', 'books/:id/edit', 'trash', 'audit'])(
+    'la ruta %s carga su componente con lazy',
+    (path) => {
+      const route = flattenRoutes(createRoutes(createTestQueryClient())).find((item) => item.path === path)
+      expect(route?.lazy).toBeDefined()
+      expect(route?.element).toBeUndefined()
+    },
+  )
+
+  it('el listado y el layout quedan en el bundle principal', () => {
+    const routes = flattenRoutes(createRoutes(createTestQueryClient()))
+    expect(routes.find((item) => item.path === 'books')?.element).toBeDefined()
+    expect(routes.find((item) => item.path === '/')?.element).toBeDefined()
+  })
+})
+
 describe('rutas de la aplicación', () => {
   it('redirige / a /books y muestra el layout con el usuario', async () => {
     const { router } = renderApp('/')
     expect(await screen.findByRole('heading', { name: 'Libros' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/books')
     expect(await screen.findByText('Administrador')).toBeInTheDocument()
+  })
+
+  it('el header navega entre Libros, Papelera y Auditoría marcando la sección activa', async () => {
+    const [book] = buildBooks()
+    const { user, router } = renderApp(`/books/${book.id}`)
+    const nav = await screen.findByRole('navigation', { name: 'Principal' })
+    const link = (name: string) => within(nav).getByRole('link', { name })
+    expect(link('Libros')).toHaveAttribute('aria-current', 'page')
+    expect(link('Papelera')).not.toHaveAttribute('aria-current')
+    await user.click(link('Papelera'))
+    expect(await screen.findByRole('heading', { name: 'Papelera' })).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/trash')
+    expect(link('Papelera')).toHaveAttribute('aria-current', 'page')
+    expect(link('Libros')).not.toHaveAttribute('aria-current')
+    await user.click(link('Auditoría'))
+    expect(await screen.findByRole('heading', { name: 'Auditoría' })).toBeInTheDocument()
+    expect(link('Auditoría')).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('muestra la papelera en /trash dentro del layout', async () => {
+    renderApp('/trash')
+    expect(await screen.findByRole('heading', { name: 'Papelera' })).toBeInTheDocument()
+    expect(await screen.findByText('La papelera está vacía')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cerrar sesión' })).toBeInTheDocument()
+  })
+
+  it('muestra la auditoría en /audit dentro del layout', async () => {
+    renderApp('/audit')
+    expect(await screen.findByRole('heading', { name: 'Auditoría' })).toBeInTheDocument()
+    expect(await screen.findByText('16 registros · Página 1 de 2')).toBeInTheDocument()
   })
 
   it('envía a /login sin sesión y vuelve a la ruta original tras iniciar sesión', async () => {

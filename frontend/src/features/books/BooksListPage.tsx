@@ -2,27 +2,18 @@ import { DownloadIcon, PlusIcon } from 'lucide-react'
 import { useEffect } from 'react'
 import { Link } from 'react-router'
 import { Button, buttonVariants } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import { getErrorMessage } from '@/lib/api-error'
 import { EmptyState } from '@/shared/EmptyState'
+import { ListPagination } from '@/shared/ListPagination'
 import { QueryError } from '@/shared/QueryError'
+import { TableSkeleton } from '@/shared/TableSkeleton'
 import { buildExportUrl } from './books.api'
 import { useBooksQuery } from './books.queries'
 import { BooksFilters } from './BooksFilters'
-import { BooksPagination } from './BooksPagination'
 import { BooksTable } from './BooksTable'
 import { useBookSearchParams } from './useBookSearchParams'
 
-function BooksTableSkeleton() {
-  return (
-    <div data-testid="books-skeleton" role="status" className="flex flex-col gap-2">
-      <span className="sr-only">Cargando…</span>
-      {Array.from({ length: 6 }, (_, index) => (
-        <Skeleton key={index} className="h-9 w-full" />
-      ))}
-    </div>
-  )
-}
+const BOOK_NOUN = ['libro', 'libros'] as const
 
 export function BooksListPage() {
   const { state, query, filters, setPage, setLimit, setFilters, setSorting, clearFilters, hasActiveFilters } =
@@ -42,7 +33,7 @@ export function BooksListPage() {
     <section className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Libros</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <a href={buildExportUrl(filters)} download className={buttonVariants({ variant: 'outline' })}>
             <DownloadIcon data-icon="inline-start" />
             Exportar CSV
@@ -62,7 +53,7 @@ export function BooksListPage() {
 
       <BooksFilters values={state} onChange={setFilters} onClear={clearFilters} hasActiveFilters={hasActiveFilters} />
 
-      {(booksQuery.isPending || lastPage !== null) && <BooksTableSkeleton />}
+      {(booksQuery.isPending || lastPage !== null) && <TableSkeleton data-testid="books-skeleton" />}
 
       {booksQuery.isError && result && (
         <div
@@ -111,7 +102,7 @@ export function BooksListPage() {
       )}
 
       {result && result.meta.total > 0 && (
-        <BooksPagination meta={result.meta} onPageChange={setPage} onLimitChange={setLimit} />
+        <ListPagination meta={result.meta} onPageChange={setPage} onLimitChange={setLimit} noun={BOOK_NOUN} />
       )}
     </section>
   )

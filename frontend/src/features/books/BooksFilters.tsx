@@ -1,15 +1,13 @@
-import { SearchIcon } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useCatalogOptions } from '@/features/catalog/catalog.queries'
 import { CatalogFilterCombobox } from '@/features/catalog/CatalogFilterCombobox'
-import { useDebounce } from '@/shared/useDebounce'
+import { SearchField } from '@/shared/SearchField'
+import { useDebouncedSearch } from '@/shared/useDebouncedSearch'
 import type { AvailabilityFilter, BookFilterValues } from './useBookSearchParams'
 
-export const SEARCH_DEBOUNCE_MS = 400
+export { SEARCH_DEBOUNCE_MS } from '@/shared/useDebouncedSearch'
 const ALL = 'all'
 
 const AVAILABILITY_ITEMS = [
@@ -26,50 +24,15 @@ interface BooksFiltersProps {
 }
 
 export function BooksFilters({ values, onChange, onClear, hasActiveFilters }: BooksFiltersProps) {
-  const [searchText, setSearchText] = useState(values.search)
-  const debouncedSearch = useDebounce(searchText, SEARCH_DEBOUNCE_MS)
-  const committedSearch = useRef(values.search)
-  const onChangeRef = useRef(onChange)
+  const [searchText, setSearchText] = useDebouncedSearch(values.search, (search) => onChange({ search }))
   const { data: genres = [] } = useCatalogOptions('genres', '')
-
-  useLayoutEffect(() => {
-    onChangeRef.current = onChange
-  })
-
-  // La URL puede cambiar desde fuera (atrás/adelante, "Limpiar filtros"): se sincroniza el input.
-  useEffect(() => {
-    if (values.search !== committedSearch.current) {
-      committedSearch.current = values.search
-      setSearchText(values.search)
-    }
-  }, [values.search])
-
-  useEffect(() => {
-    if (debouncedSearch !== committedSearch.current) {
-      committedSearch.current = debouncedSearch
-      onChangeRef.current({ search: debouncedSearch })
-    }
-  }, [debouncedSearch])
 
   const genreItems = [{ value: ALL, label: 'Todos los géneros' }, ...genres.map((g) => ({ value: g.id, label: g.name }))]
 
+  // 1 columna en móvil, 2 desde sm y los 5 filtros en una fila desde lg.
   return (
-    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-6 lg:items-end">
-      <div className="flex flex-col gap-1.5 lg:col-span-2">
-        <Label htmlFor="books-search">Buscar</Label>
-        <div className="relative">
-          <SearchIcon className="pointer-events-none absolute top-2 left-2.5 size-4 text-muted-foreground" aria-hidden />
-          <Input
-            id="books-search"
-            type="search"
-            className="pl-8"
-            placeholder="Título o autor"
-            maxLength={100}
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-          />
-        </div>
-      </div>
+    <div className="grid grid-cols-1 gap-3 *:min-w-0 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+      <SearchField id="books-search" value={searchText} onChange={setSearchText} className="sm:col-span-2 lg:col-span-1" />
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="books-genre">Género</Label>
         <Select
@@ -130,7 +93,7 @@ export function BooksFilters({ values, onChange, onClear, hasActiveFilters }: Bo
           </SelectContent>
         </Select>
       </div>
-      <div className="lg:col-span-6">
+      <div className="sm:col-span-2 lg:col-span-5">
         <Button
           variant="ghost"
           size="sm"

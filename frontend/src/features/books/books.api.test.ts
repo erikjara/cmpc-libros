@@ -3,7 +3,8 @@ import { http, HttpResponse } from 'msw'
 import { httpClient } from '@/lib/http-client'
 import { buildBooks } from '@/test/msw/fixtures'
 import { server } from '@/test/msw/server'
-import { buildExportUrl, fetchBooks, toQueryString, updateBook } from './books.api'
+import { db } from '@/test/msw/db'
+import { buildExportUrl, fetchBooks, fetchTrash, restoreBook, toQueryString, updateBook } from './books.api'
 
 const [existing] = buildBooks()
 
@@ -65,5 +66,23 @@ describe('updateBook', () => {
     )
     await updateBook(existing.id, { stock: 1 })
     expect(ifMatch).toBeNull()
+  })
+})
+
+describe('fetchTrash', () => {
+  it('pide la papelera sin enviar la búsqueda vacía y devuelve deletedAt', async () => {
+    db.deletedBookIds.set(existing.id, '2026-09-30T12:00:00.000Z')
+    const result = await fetchTrash({ page: 1, limit: 10, search: '' })
+    expect(result.meta.total).toBe(1)
+    expect(result.data[0]).toMatchObject({ id: existing.id, deletedAt: '2026-09-30T12:00:00.000Z' })
+  })
+})
+
+describe('restoreBook', () => {
+  it('restaura un libro eliminado y lo devuelve', async () => {
+    db.deletedBookIds.set(existing.id, '2026-09-30T12:00:00.000Z')
+    const book = await restoreBook(existing.id)
+    expect(book.id).toBe(existing.id)
+    expect(db.deletedBookIds.has(existing.id)).toBe(false)
   })
 })

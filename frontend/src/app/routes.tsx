@@ -1,21 +1,22 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { redirect, type RouteObject } from 'react-router'
-import { LoginPage } from '@/features/auth/LoginPage'
 import { createRedirectIfAuthenticatedLoader, createRequireAuthLoader } from '@/features/auth/require-auth'
-import { BookDetailPage } from '@/features/books/BookDetailPage'
-import { BookFormPage } from '@/features/books/BookFormPage'
 import { BooksListPage } from '@/features/books/BooksListPage'
 import { FullPageLoader } from '@/shared/FullPageLoader'
 import { NotFoundPage } from '@/shared/NotFoundPage'
 import { RouteErrorBoundary } from '@/shared/RouteErrorBoundary'
 import { AppLayout } from './AppLayout'
 
+// El listado (página de entrada) y el layout van en el bundle principal; el resto de las
+// páginas se descargan al navegar a ellas.
+const loadBookForm = async () => (await import('@/features/books/BookFormPage')).BookFormPage
+
 export function createRoutes(queryClient: QueryClient): RouteObject[] {
   return [
     {
       path: '/login',
       loader: createRedirectIfAuthenticatedLoader(queryClient),
-      element: <LoginPage />,
+      lazy: { Component: async () => (await import('@/features/auth/LoginPage')).LoginPage },
       errorElement: <RouteErrorBoundary fullPage />,
       hydrateFallbackElement: <FullPageLoader />,
     },
@@ -31,9 +32,11 @@ export function createRoutes(queryClient: QueryClient): RouteObject[] {
           children: [
             { index: true, loader: () => redirect('/books') },
             { path: 'books', element: <BooksListPage /> },
-            { path: 'books/new', element: <BookFormPage /> },
-            { path: 'books/:id', element: <BookDetailPage /> },
-            { path: 'books/:id/edit', element: <BookFormPage /> },
+            { path: 'books/new', lazy: { Component: loadBookForm } },
+            { path: 'books/:id', lazy: { Component: async () => (await import('@/features/books/BookDetailPage')).BookDetailPage } },
+            { path: 'books/:id/edit', lazy: { Component: loadBookForm } },
+            { path: 'trash', lazy: { Component: async () => (await import('@/features/trash/TrashPage')).TrashPage } },
+            { path: 'audit', lazy: { Component: async () => (await import('@/features/audit/AuditPage')).AuditPage } },
             { path: '*', element: <NotFoundPage /> },
           ],
         },
