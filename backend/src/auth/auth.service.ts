@@ -50,9 +50,35 @@ export class AuthService {
       context: { ...context, userId: user.id },
     });
 
-    const payload: JwtPayload = { sub: user.id, email: user.email };
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      tv: user.tokenVersion,
+    };
     const token = await this.jwt.signAsync(payload);
     return { user: toUserDto(user), token };
+  }
+
+  /**
+   * Con un token válido incrementa el `tokenVersion` de su usuario: todos los tokens
+   * emitidos dejan de servir. Sin token, o con uno inválido o expirado, no hace nada.
+   */
+  async logout(token: string | null): Promise<void> {
+    if (!token) {
+      return;
+    }
+    let payload: JwtPayload;
+    try {
+      payload = await this.jwt.verifyAsync<JwtPayload>(token, {
+        algorithms: ['HS256'],
+      });
+    } catch {
+      return;
+    }
+    if (typeof payload.tv !== 'number') {
+      return;
+    }
+    await this.users.revokeTokens(payload.sub, payload.tv);
   }
 
   async me(userId: string): Promise<UserDto> {

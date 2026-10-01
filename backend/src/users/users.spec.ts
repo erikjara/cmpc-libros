@@ -10,6 +10,7 @@ const user: User = {
   email: 'admin@cmpc.cl',
   name: 'Administrador',
   passwordHash: 'hash',
+  tokenVersion: 0,
   createdAt: new Date(),
   updatedAt: new Date(),
 };
@@ -37,6 +38,18 @@ describe('UsersRepository', () => {
     expect(prisma.user.findUnique).toHaveBeenCalledWith({
       where: { id: 'u1' },
     });
+  });
+
+  it('revokeTokens incrementa tokenVersion solo si sigue siendo la del token', async () => {
+    prisma.user.updateMany.mockResolvedValueOnce({ count: 1 });
+    await expect(repository.revokeTokens('u1', 3)).resolves.toBe(true);
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({
+      where: { id: 'u1', tokenVersion: 3 },
+      data: { tokenVersion: { increment: 1 } },
+    });
+
+    prisma.user.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(repository.revokeTokens('u1', 2)).resolves.toBe(false);
   });
 });
 

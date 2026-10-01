@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Post,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -15,7 +16,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ThrottlerGuard } from '@nestjs/throttler';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { ReqContext } from '../common/decorators/request-context.decorator.js';
@@ -39,6 +40,7 @@ import {
   buildSessionCookieOptions,
   type SessionCookieSettings,
 } from './session-cookie.js';
+import { jwtFromRequest } from './token-extractor.js';
 
 @ApiTags('Autenticación')
 @Controller('auth')
@@ -81,12 +83,22 @@ export class AuthController {
   @Public()
   @Post('logout')
   @HttpCode(204)
-  @ApiOperation({ summary: 'Cierra la sesión eliminando la cookie' })
-  logout(@Res({ passthrough: true }) response: Response): void {
+  @ApiOperation({
+    summary: 'Cierra la sesión e invalida los tokens emitidos',
+    description:
+      'Si la request trae un token válido (cookie o Bearer), invalida todos los ' +
+      'tokens emitidos para ese usuario. Siempre elimina la cookie y responde 204, ' +
+      'aunque no haya token o este sea inválido o haya expirado.',
+  })
+  async logout(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<void> {
     response.clearCookie(
       SESSION_COOKIE,
       buildClearCookieOptions(this.cookieSettings),
     );
+    await this.auth.logout(jwtFromRequest(request));
   }
 
   @Get('me')
