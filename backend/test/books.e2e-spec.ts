@@ -13,6 +13,7 @@ import {
 import { AuditLogsRepository } from '../src/audit/audit-logs.repository.js';
 import { EXPORT_BATCH_SIZE } from '../src/books/books-export.service.js';
 import { BooksRepository } from '../src/books/books.repository.js';
+import { BooksService } from '../src/books/books.service.js';
 import { makeBook } from '../src/testing/book-fixtures.js';
 import { JPEG_BYTES, PNG_BYTES } from '../src/testing/image-fixtures.js';
 import { createE2eApp, login, type E2eApp } from './support/e2e-app.js';
@@ -218,6 +219,25 @@ describe('API de libros (e2e)', () => {
       .set('Cookie', cookie)
       .expect(200);
     expect(body.data).toEqual([]);
+  });
+
+  it('responde 503 con el formato de error si el handler supera REQUEST_TIMEOUT_MS', async () => {
+    vi.spyOn(ctx.app.get(BooksService), 'list').mockReturnValueOnce(
+      new Promise(() => undefined),
+    );
+
+    const { body } = await api()
+      .get('/api/books')
+      .set('Cookie', cookie)
+      .expect(503);
+
+    expect(body).toMatchObject({
+      statusCode: 503,
+      error: 'Service Unavailable',
+      message: 'La solicitud tardó demasiado',
+      path: '/api/books',
+      requestId: expect.any(String),
+    });
   });
 
   it('rechaza con 400 una página demasiado grande', async () => {

@@ -41,6 +41,11 @@ export const envSchema = z.object({
     .url('CORS_ORIGIN debe ser una URL válida')
     .default('http://localhost:5173'),
   UPLOADS_DIR: z.string().min(1).default('./uploads'),
+  REQUEST_TIMEOUT_MS: z.coerce
+    .number()
+    .int('REQUEST_TIMEOUT_MS debe ser un entero (milisegundos)')
+    .positive('REQUEST_TIMEOUT_MS debe ser mayor que 0')
+    .default(30_000),
 });
 
 export type Env = z.infer<typeof envSchema>;

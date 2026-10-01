@@ -23,8 +23,25 @@ describe('validateEnv', () => {
       COOKIE_SECURE: true,
       CORS_ORIGIN: 'http://localhost:5173',
       UPLOADS_DIR: './uploads',
+      REQUEST_TIMEOUT_MS: 30_000,
     });
   });
+
+  it('convierte REQUEST_TIMEOUT_MS a número', () => {
+    expect(
+      validateEnv({ ...validEnv, REQUEST_TIMEOUT_MS: '5000' })
+        .REQUEST_TIMEOUT_MS,
+    ).toBe(5000);
+  });
+
+  it.each(['0', '-1', '1.5', 'abc'])(
+    'falla si REQUEST_TIMEOUT_MS es %j',
+    (value) => {
+      expect(() =>
+        validateEnv({ ...validEnv, REQUEST_TIMEOUT_MS: value }),
+      ).toThrow(/REQUEST_TIMEOUT_MS/);
+    },
+  );
 
   it('falla si falta DATABASE_URL', () => {
     expect(() => validateEnv({ JWT_SECRET: 'x'.repeat(32) })).toThrow(

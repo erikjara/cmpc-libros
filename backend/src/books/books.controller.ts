@@ -26,6 +26,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { NoTimeout } from '../common/decorators/no-timeout.decorator.js';
 import { ReqContext } from '../common/decorators/request-context.decorator.js';
 import type { PaginatedResult } from '../common/pagination/pagination.js';
 import {
@@ -74,6 +75,7 @@ export class BooksController {
 
   // Declarada antes de ':id' para que "export" no se interprete como id.
   @Get('export')
+  @NoTimeout()
   @ApiOperation({
     summary: 'Exporta a CSV (streaming) los libros que cumplen los filtros',
   })
@@ -174,6 +176,7 @@ export class BooksController {
 
   @Post(':id/image')
   @HttpCode(200)
+  @NoTimeout()
   @UseInterceptors(
     FileInterceptor('image', {
       limits: { fileSize: MAX_IMAGE_BYTES, files: 1 },

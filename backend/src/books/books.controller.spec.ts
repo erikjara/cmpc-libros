@@ -4,6 +4,8 @@ import { BadRequestException, Logger, StreamableFile } from '@nestjs/common';
 import type { Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
+import { Reflector } from '@nestjs/core';
+import { NO_TIMEOUT_KEY } from '../common/decorators/no-timeout.decorator.js';
 import { PaginatedResult } from '../common/pagination/pagination.js';
 import {
   BOOK_ID,
@@ -40,6 +42,20 @@ describe('BooksController', () => {
     books = mock<BooksService>();
     exporter = mock<BooksExportService>();
     controller = new BooksController(books, exporter);
+  });
+
+  it('excluye del límite de tiempo solo la exportación y la subida de imagen', () => {
+    const reflector = new Reflector();
+    const prototype = BooksController.prototype as unknown as Record<
+      string,
+      () => unknown
+    >;
+    const exempt = Object.getOwnPropertyNames(prototype).filter(
+      (name) =>
+        name !== 'constructor' &&
+        reflector.get<boolean>(NO_TIMEOUT_KEY, prototype[name]),
+    );
+    expect(exempt.sort()).toEqual(['export', 'uploadImage']);
   });
 
   it('list delega la query al service', async () => {
