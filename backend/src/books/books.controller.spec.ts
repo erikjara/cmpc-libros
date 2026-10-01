@@ -4,7 +4,10 @@ import { BadRequestException, Logger, StreamableFile } from '@nestjs/common';
 import type { Response } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
-import { INTERCEPTORS_METADATA } from '@nestjs/common/constants.js';
+import {
+  INTERCEPTORS_METADATA,
+  PATH_METADATA,
+} from '@nestjs/common/constants.js';
 import { Reflector } from '@nestjs/core';
 import { ETagInterceptor } from '../common/interceptors/etag.interceptor.js';
 import { NO_TIMEOUT_KEY } from '../common/decorators/no-timeout.decorator.js';
@@ -16,11 +19,12 @@ import {
   REQUEST_CONTEXT,
 } from '../testing/book-fixtures.js';
 import { JPEG_BYTES } from '../testing/image-fixtures.js';
-import { toBookDto } from './book.mapper.js';
+import { toBookDto, toTrashedBookDto } from './book.mapper.js';
 import type { BooksExportService } from './books-export.service.js';
 import { BooksController } from './books.controller.js';
 import type { BooksService } from './books.service.js';
 import type { BookListQueryDto } from './dto/book-list-query.dto.js';
+import type { TrashQueryDto } from './dto/trash-query.dto.js';
 
 function fakeResponse(destroyed = false) {
   const response = Object.assign(new EventEmitter(), {
@@ -107,6 +111,33 @@ describe('BooksController', () => {
     const query = { page: 1, limit: 10 } as BookListQueryDto;
     await expect(controller.list(query)).resolves.toBe(page);
     expect(books.list).toHaveBeenCalledWith(query);
+  });
+
+  it('listTrash delega la query de la papelera al service', async () => {
+    const deletedAt = new Date('2026-09-20T15:30:00.000Z');
+    const page = new PaginatedResult(
+      [toTrashedBookDto({ ...makeBook({ deletedAt }), deletedAt })],
+      { page: 1, limit: 10, total: 1, totalPages: 1 },
+    );
+    books.listTrash.mockResolvedValue(page);
+    const query = { page: 1, limit: 10, search: 'allende' } as TrashQueryDto;
+    await expect(controller.listTrash(query)).resolves.toBe(page);
+    expect(books.listTrash).toHaveBeenCalledWith(query);
+  });
+
+  it('declara GET trash antes de GET :id para que "trash" no se tome como id', () => {
+    const methods = Object.getOwnPropertyNames(BooksController.prototype);
+    expect(methods.indexOf('listTrash')).toBeGreaterThan(-1);
+    expect(methods.indexOf('listTrash')).toBeLessThan(
+      methods.indexOf('findOne'),
+    );
+    expect(
+      Reflect.getMetadata(
+        PATH_METADATA,
+        (BooksController.prototype as unknown as Record<string, object>)
+          .listTrash,
+      ),
+    ).toBe('trash');
   });
 
   it('findOne, create, update, remove y restore pasan id, body y contexto', async () => {
