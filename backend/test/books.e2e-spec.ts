@@ -173,6 +173,201 @@ describe('API de libros (e2e)', () => {
     });
   });
 
+  describe('papelera', () => {
+    interface TrashedBody extends BookBody {
+      deletedAt: string;
+    }
+
+    async function deleteBook(id: string): Promise<void> {
+      await api().delete(`/api/books/${id}`).set('Cookie', cookie).expect(204);
+    }
+
+    async function trash(query: Record<string, unknown> = {}) {
+      const { body } = await api()
+        .get('/api/books/trash')
+        .query(query)
+        .set('Cookie', cookie)
+        .expect(200);
+      return body as {
+        data: TrashedBody[];
+        meta: {
+          page: number;
+          limit: number;
+          total: number;
+          totalPages: number;
+        };
+      };
+    }
+
+    it('un libro eliminado aparece en la papelera con su fecha de eliminación y no en el listado', async () => {
+      const book = await createBook({ title: 'Papelera ciclo e2e' });
+      const before = Date.now();
+      await deleteBook(book.id);
+      const after = Date.now();
+
+      const { data, meta } = await trash({ search: 'Papelera ciclo' });
+      expect(meta).toEqual({ page: 1, limit: 10, total: 1, totalPages: 1 });
+      expect(data).toEqual([
+        expect.objectContaining({
+          id: book.id,
+          title: 'Papelera ciclo e2e',
+          author: book.author,
+          deletedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
+        }),
+      ]);
+      const deletedAt = Date.parse(data[0].deletedAt);
+      expect(deletedAt).toBeGreaterThanOrEqual(before - 1000);
+      expect(deletedAt).toBeLessThanOrEqual(after + 1000);
+
+      const { body } = await api()
+        .get('/api/books?search=Papelera ciclo')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(body.data).toEqual([]);
+    });
+
+    it('un libro restaurado desaparece de la papelera y vuelve al listado', async () => {
+      const book = await createBook({ title: 'Papelera restaurado e2e' });
+      await deleteBook(book.id);
+      expect((await trash({ search: 'Papelera restaurado' })).meta.total).toBe(
+        1,
+      );
+
+      await api()
+        .post(`/api/books/${book.id}/restore`)
+        .set('Cookie', cookie)
+        .expect(200);
+
+      expect(await trash({ search: 'Papelera restaurado' })).toMatchObject({
+        data: [],
+        meta: { total: 0, totalPages: 0 },
+      });
+      const { body } = await api()
+        .get('/api/books?search=Papelera restaurado')
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(body.data.map((item: BookBody) => item.id)).toEqual([book.id]);
+    });
+
+    it('ordena por eliminación más reciente y pagina de forma estable', async () => {
+      const deleted: BookBody[] = [];
+      for (let index = 0; index < 3; index++) {
+        const book = await createBook({ title: `Papelera orden ${index}` });
+        await deleteBook(book.id);
+        deleted.push(book);
+      }
+      const newestFirst = deleted.map((book) => book.id).reverse();
+
+      const first = await trash({ search: 'Papelera orden', limit: 2 });
+      expect(first.meta).toEqual({
+        page: 1,
+        limit: 2,
+        total: 3,
+        totalPages: 2,
+      });
+      const second = await trash({
+        search: 'Papelera orden',
+        limit: 2,
+        page: 2,
+      });
+      expect([...first.data, ...second.data].map((book) => book.id)).toEqual(
+        newestFirst,
+      );
+
+      const outOfRange = await trash({
+        search: 'Papelera orden',
+        limit: 2,
+        page: 3,
+      });
+      expect(outOfRange).toEqual({
+        data: [],
+        meta: { page: 3, limit: 2, total: 3, totalPages: 2 },
+      });
+    });
+
+    it('busca en título y autor, con % y _ literales', async () => {
+      const byTitle = await createBook({ title: 'Papelera 100% e2e' });
+      const other = await createBook({ title: 'Papelera cien e2e' });
+      const byAuthor = await createBook({
+        title: 'Sin pista en el título',
+        authorName: 'Autora_papelera',
+      });
+      for (const book of [byTitle, other, byAuthor]) {
+        await deleteBook(book.id);
+      }
+
+      const ids = async (search: string) =>
+        (await trash({ search })).data.map((book) => book.id);
+
+      expect(await ids('papelera 100%')).toEqual([byTitle.id]);
+      expect(await ids('autora_papelera')).toEqual([byAuthor.id]);
+      expect(await ids('AUTORA_')).toEqual([byAuthor.id]);
+      expect(await ids('autora%papelera')).toEqual([]);
+    });
+
+    it('rechaza con 400 parámetros desconocidos y límites inválidos', async () => {
+      const unknown = await api()
+        .get('/api/books/trash?sort=title:asc')
+        .set('Cookie', cookie)
+        .expect(400);
+      expect(unknown.body).toMatchObject({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: ['La propiedad "sort" no está permitida'],
+        path: '/api/books/trash?sort=title:asc',
+      });
+
+      const invalid = await api()
+        .get('/api/books/trash?limit=101&page=0')
+        .set('Cookie', cookie)
+        .expect(400);
+      expect(invalid.body.message).toEqual(
+        expect.arrayContaining([
+          'limit no puede ser mayor a 100',
+          'page debe ser mayor o igual a 1',
+        ]),
+      );
+    });
+
+    it('no registra auditoría al consultar', async () => {
+      const total = async () =>
+        (
+          await api()
+            .get('/api/audit-logs?limit=1')
+            .set('Cookie', cookie)
+            .expect(200)
+        ).body.meta.total as number;
+      const before = await total();
+      await trash();
+      expect(await total()).toBe(before);
+    });
+
+    it('Swagger documenta la respuesta paginada con deletedAt', async () => {
+      const { body } = await api().get('/api/docs/openapi.json').expect(200);
+      const operation = body.paths['/api/books/trash'].get;
+      expect(
+        operation.responses['200'].content['application/json'].schema,
+      ).toMatchObject({
+        properties: {
+          data: {
+            type: 'array',
+            items: {
+              $ref: '#/components/schemas/TrashedBookResponseDto',
+            },
+          },
+          meta: { $ref: '#/components/schemas/PaginationMetaDto' },
+        },
+      });
+      expect(body.components.schemas.TrashedBookResponseDto.required).toEqual(
+        expect.arrayContaining(['deletedAt', 'title', 'author']),
+      );
+      expect(operation.responses['401']).toBeDefined();
+      expect(
+        operation.parameters.map((p: { name: string }) => p.name).sort(),
+      ).toEqual(['limit', 'page', 'search']);
+    });
+  });
+
   it('busca % y _ de forma literal', async () => {
     await createBook({ title: 'Descuento 100% real' });
     await createBook({ title: 'Cien por ciento' });
