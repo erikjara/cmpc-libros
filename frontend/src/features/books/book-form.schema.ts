@@ -9,6 +9,14 @@ const PLAIN_PRICE = /^\d+([.,]\d{1,2})?$/
 
 export const PRICE_FORMAT_MESSAGE = 'Formato no válido: usa 15.990, 15990 o 15990,50 (hasta 2 decimales)'
 
+// Formato con el que se muestra un precio en el campo: miles con punto y decimales (solo si existen)
+// con coma, siempre aceptado por parsePrice. useGrouping 'always' agrupa también 4 cifras (8.990).
+const priceInputFormatter = new Intl.NumberFormat('es-CL', { maximumFractionDigits: 2, useGrouping: 'always' })
+
+export function formatPriceInput(price: number): string {
+  return priceInputFormatter.format(price)
+}
+
 export function parsePrice(raw: string): number | null {
   const value = raw.trim()
   if (THOUSANDS_PRICE.test(value)) return Number(value.replaceAll('.', '').replace(',', '.'))
@@ -64,7 +72,7 @@ export function bookToFormValues(book: Book): BookFormInput {
     authorName: book.author.name,
     publisherName: book.publisher.name,
     genreName: book.genre.name,
-    price: String(book.price),
+    price: formatPriceInput(book.price),
     stock: String(book.stock),
   }
 }

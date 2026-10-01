@@ -100,7 +100,7 @@ describe('BookFormPage (edición)', () => {
     renderPage(`/books/${existing.id}/edit`)
     expect(await screen.findByLabelText('Título')).toHaveValue('Cien años de soledad')
     expect(screen.getByLabelText('Autor')).toHaveValue('Gabriel García Márquez')
-    expect(screen.getByLabelText('Precio (CLP)')).toHaveValue('15990')
+    expect(screen.getByLabelText('Precio (CLP)')).toHaveValue('15.990')
     expect(screen.getByLabelText('Stock')).toHaveValue('5')
     expect(screen.getByRole('img', { name: 'Vista previa de la portada' })).toHaveAttribute('src', '/api/uploads/cien-anos.webp')
   })
@@ -153,7 +153,7 @@ describe('BookFormPage (edición)', () => {
     expect(screen.getByTestId('book-form-skeleton')).toBeInTheDocument()
     const title = await screen.findByLabelText('Título')
     expect(screen.getByLabelText('Stock')).toHaveValue('99')
-    expect(screen.getByLabelText('Precio (CLP)')).toHaveValue('21990')
+    expect(screen.getByLabelText('Precio (CLP)')).toHaveValue('21.990')
 
     await user.clear(title)
     await user.type(title, 'Cien años de soledad (edición conmemorativa)')
@@ -203,7 +203,7 @@ describe('BookFormPage (edición)', () => {
       expect(queryClient.getQueryData<Book>(bookKeys.detail(existing.id))?.updatedAt).toBe(external.updatedAt),
     )
     expect(screen.getByLabelText('Stock')).toHaveValue('1')
-    expect(screen.getByLabelText('Precio (CLP)')).toHaveValue('15990')
+    expect(screen.getByLabelText('Precio (CLP)')).toHaveValue('15.990')
 
     // El If-Match es la versión que se mostró: el servidor rechaza el guardado.
     const save = screen.getByRole('button', { name: 'Guardar cambios' })
@@ -220,7 +220,7 @@ describe('BookFormPage (edición)', () => {
 
     await user.click(screen.getByRole('button', { name: 'Recargar versión actual' }))
     await waitFor(() => expect(screen.getByLabelText('Stock')).toHaveValue('99'))
-    expect(screen.getByLabelText('Precio (CLP)')).toHaveValue('21990')
+    expect(screen.getByLabelText('Precio (CLP)')).toHaveValue('21.990')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
     const reloadedStock = screen.getByLabelText('Stock')
