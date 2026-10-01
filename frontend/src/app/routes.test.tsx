@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter } from 'react-router'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
@@ -7,6 +7,7 @@ import { db } from '@/test/msw/db'
 import { errorBody } from '@/test/msw/handlers'
 import { server } from '@/test/msw/server'
 import { createTestQueryClient, renderRoutes } from '@/test/render'
+import { buildBooks } from '@/test/msw/fixtures'
 import { createRoutes } from './routes'
 import { installSessionExpiredHandler, SESSION_EXPIRED_MESSAGE } from './session-expired'
 
@@ -33,6 +34,23 @@ describe('rutas de la aplicación', () => {
     expect(await screen.findByRole('heading', { name: 'Libros' })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/books')
     expect(await screen.findByText('Administrador')).toBeInTheDocument()
+  })
+
+  it('el header navega entre Libros, Papelera y Auditoría marcando la sección activa', async () => {
+    const [book] = buildBooks()
+    const { user, router } = renderApp(`/books/${book.id}`)
+    const nav = await screen.findByRole('navigation', { name: 'Principal' })
+    const link = (name: string) => within(nav).getByRole('link', { name })
+    expect(link('Libros')).toHaveAttribute('aria-current', 'page')
+    expect(link('Papelera')).not.toHaveAttribute('aria-current')
+    await user.click(link('Papelera'))
+    expect(await screen.findByRole('heading', { name: 'Papelera' })).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/trash')
+    expect(link('Papelera')).toHaveAttribute('aria-current', 'page')
+    expect(link('Libros')).not.toHaveAttribute('aria-current')
+    await user.click(link('Auditoría'))
+    expect(await screen.findByRole('heading', { name: 'Auditoría' })).toBeInTheDocument()
+    expect(link('Auditoría')).toHaveAttribute('aria-current', 'page')
   })
 
   it('muestra la papelera en /trash dentro del layout', async () => {
