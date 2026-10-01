@@ -473,7 +473,7 @@ Resultado de `npm run test:cov`:
 
 | Aplicación | Tests | Sentencias | Ramas | Funciones | Líneas |
 |---|---|---|---|---|---|
-| Backend | 294 unitarios + 39 de integración | 99,30 % | 93,49 % | 98,90 % | 99,29 % |
+| Backend | 285 unitarios + 38 de integración | 99,29 % | 93,71 % | 98,88 % | 99,28 % |
 | Frontend | 253 | 96,63 % | 94,12 % | 96,30 % | 97,49 % |
 
 La cobertura se mide sobre los tests unitarios; los de integración (`npm run test:e2e`) se
