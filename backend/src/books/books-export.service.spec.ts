@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import type { AuditService } from '../audit/audit.service.js';
+import { Prisma } from '../generated/prisma/client.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { makeBook, REQUEST_CONTEXT } from '../testing/book-fixtures.js';
 import {
@@ -32,9 +33,10 @@ describe('BooksExportService', () => {
     service = new BooksExportService(prisma, repository, audit);
   });
 
-  it('escribe BOM, encabezados de la API y escapa comas y comillas (RFC 4180)', async () => {
+  it('escribe BOM, encabezados de la API con ";" y escapa ";" y comillas (RFC 4180)', async () => {
     repository.findBatch.mockResolvedValueOnce([
-      makeBook({ title: 'El "gran" libro, parte 1' }),
+      makeBook({ title: 'El "gran" libro; parte 1' }),
+      makeBook({ title: 'Uno, dos', price: new Prisma.Decimal('15990') }),
     ]);
 
     const csv = await readAll(
@@ -44,10 +46,14 @@ describe('BooksExportService', () => {
     expect(csv.startsWith('﻿')).toBe(true);
     const lines = csv.slice(1).trim().split('\n');
     expect(lines[0]).toBe(
-      'ID,Título,Autor,Editorial,Género,Precio,Stock,Disponible,Creado',
+      'ID;Título;Autor;Editorial;Género;Precio;Stock;Disponible;Creado',
     );
     expect(lines[1]).toBe(
-      '3f2b8a54-5f0e-4f7c-9a57-3a5f9b2f6e10,"El ""gran"" libro, parte 1",Isabel Allende,Sudamericana,Realismo mágico,15990.50,3,Sí,2026-09-01T10:00:00.000Z',
+      '3f2b8a54-5f0e-4f7c-9a57-3a5f9b2f6e10;"El ""gran"" libro; parte 1";Isabel Allende;Sudamericana;Realismo mágico;15990,50;3;Sí;2026-09-01T10:00:00.000Z',
+    );
+    // La coma ya no es delimitador: el texto no necesita comillas.
+    expect(lines[2]).toBe(
+      '3f2b8a54-5f0e-4f7c-9a57-3a5f9b2f6e10;Uno, dos;Isabel Allende;Sudamericana;Realismo mágico;15990;3;Sí;2026-09-01T10:00:00.000Z',
     );
   });
 
@@ -81,7 +87,7 @@ describe('BooksExportService', () => {
       await service.createCsvStream({}, REQUEST_CONTEXT),
     );
     expect(csv.slice(1).trim()).toBe(
-      'ID,Título,Autor,Editorial,Género,Precio,Stock,Disponible,Creado',
+      'ID;Título;Autor;Editorial;Género;Precio;Stock;Disponible;Creado',
     );
   });
 

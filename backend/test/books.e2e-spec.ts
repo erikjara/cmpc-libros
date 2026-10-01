@@ -25,7 +25,7 @@ interface BookBody {
 }
 
 const CSV_HEADER =
-  'ID,Título,Autor,Editorial,Género,Precio,Stock,Disponible,Creado';
+  'ID;Título;Autor;Editorial;Género;Precio;Stock;Disponible;Creado';
 
 describe('API de libros (e2e)', () => {
   let ctx: E2eApp;
@@ -347,8 +347,12 @@ describe('API de libros (e2e)', () => {
   });
 
   describe('exportación CSV', () => {
-    it('entrega BOM, encabezados de la API y los libros filtrados', async () => {
-      await createBook({ title: 'Exportable, con "comillas"', stock: 0 });
+    it('entrega CSV para Excel es-CL: BOM, ";" como separador, coma decimal y los libros filtrados', async () => {
+      await createBook({
+        title: 'Exportable; con "comillas", y coma',
+        price: 15990.5,
+        stock: 0,
+      });
       const response = await api()
         .get('/api/books/export?search=Exportable')
         .set('Cookie', cookie)
@@ -362,8 +366,12 @@ describe('API de libros (e2e)', () => {
       expect(response.text.startsWith(`﻿${CSV_HEADER}\n`)).toBe(true);
       const lines = response.text.trim().split('\n');
       expect(lines).toHaveLength(2);
-      expect(lines[1]).toContain('"Exportable, con ""comillas"""');
-      expect(lines[1]).toContain(',No,');
+      expect(lines[1]).toContain('"Exportable; con ""comillas"", y coma"');
+      const fields = lines[1].split(';');
+      expect(fields.slice(-4, -1)).toEqual(['15990,50', '0', 'No']);
+      expect(fields.at(-1)).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+      );
     });
 
     it('si la base falla al comenzar responde 500 con el formato de error, sin filtrar el detalle', async () => {
