@@ -36,6 +36,7 @@ services:
       REQUEST_TIMEOUT_MS: ${REQUEST_TIMEOUT_MS:-30000}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:?Define SEED_ADMIN_EMAIL en .env}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?Define SEED_ADMIN_PASSWORD en .env}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
     volumes:
       - uploads:/app/uploads
     depends_on:

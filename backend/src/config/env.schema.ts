@@ -46,6 +46,11 @@ export const envSchema = z.object({
     .int('REQUEST_TIMEOUT_MS debe ser un entero (milisegundos)')
     .positive('REQUEST_TIMEOUT_MS debe ser mayor que 0')
     .default(30_000),
+  // Lo usa el seed: libros de demostración solo si es true y la tabla está vacía.
+  SEED_DEMO_DATA: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;

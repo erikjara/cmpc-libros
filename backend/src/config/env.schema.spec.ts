@@ -24,7 +24,17 @@ describe('validateEnv', () => {
       CORS_ORIGIN: 'http://localhost:5173',
       UPLOADS_DIR: './uploads',
       REQUEST_TIMEOUT_MS: 30_000,
+      SEED_DEMO_DATA: false,
     });
+  });
+
+  it('SEED_DEMO_DATA acepta true/false y rechaza otros valores', () => {
+    expect(
+      validateEnv({ ...validEnv, SEED_DEMO_DATA: 'true' }).SEED_DEMO_DATA,
+    ).toBe(true);
+    expect(() => validateEnv({ ...validEnv, SEED_DEMO_DATA: 'si' })).toThrow(
+      /SEED_DEMO_DATA/,
+    );
   });
 
   it('convierte REQUEST_TIMEOUT_MS a número', () => {
