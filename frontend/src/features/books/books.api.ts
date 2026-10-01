@@ -31,8 +31,10 @@ export async function createBook(input: BookInput): Promise<Book> {
   return response.data.data
 }
 
-export async function updateBook(id: string, input: Partial<BookInput>): Promise<Book> {
-  const response = await httpClient.patch<ApiResponse<Book>>(`/books/${id}`, input)
+// Bloqueo optimista: con expectedUpdatedAt la API responde 412 si el libro cambió desde que se cargó.
+export async function updateBook(id: string, input: Partial<BookInput>, expectedUpdatedAt?: string): Promise<Book> {
+  const headers = expectedUpdatedAt ? { 'If-Match': `"${expectedUpdatedAt}"` } : undefined
+  const response = await httpClient.patch<ApiResponse<Book>>(`/books/${id}`, input, { headers })
   return response.data.data
 }
 

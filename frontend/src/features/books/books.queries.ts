@@ -28,6 +28,8 @@ export function useBookQuery(id: string) {
 
 export interface SaveBookVariables {
   id?: string
+  /** updatedAt del libro cargado al editar; se envía como If-Match. */
+  expectedUpdatedAt?: string
   input: BookInput
   image: File | null
 }
@@ -42,8 +44,8 @@ export interface SaveBookResult {
 export function useSaveBook() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, input, image }: SaveBookVariables): Promise<SaveBookResult> => {
-      let book = id ? await updateBook(id, input) : await createBook(input)
+    mutationFn: async ({ id, expectedUpdatedAt, input, image }: SaveBookVariables): Promise<SaveBookResult> => {
+      let book = id ? await updateBook(id, input, expectedUpdatedAt) : await createBook(input)
       let imageError: ApiError | null = null
       if (image) {
         try {
@@ -60,6 +62,12 @@ export function useSaveBook() {
         queryClient.invalidateQueries({ queryKey: bookKeys.lists() }),
         queryClient.invalidateQueries({ queryKey: catalogKeys.all }),
       ])
+    },
+    onError: async (error, { id }) => {
+      // 412: otra persona modificó el libro; se recarga el detalle para comparar con la versión actual.
+      if (id && error instanceof ApiError && error.status === 412) {
+        await queryClient.invalidateQueries({ queryKey: bookKeys.detail(id), exact: true })
+      }
     },
   })
 }
