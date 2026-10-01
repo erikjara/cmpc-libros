@@ -2,7 +2,10 @@ generator client {
   provider            = "prisma-client"
   output              = "../src/generated/prisma"
   importFileExtension = "js"
-  previewFeatures     = ["partialIndexes"]
+  // relationJoins: los `include` se resuelven en una sola consulta con JOIN. Sin él,
+  // Prisma lanza en paralelo una consulta por relación y, dentro de una transacción
+  // (una única conexión de pg), dispara el DeprecationWarning de consultas concurrentes.
+  previewFeatures     = ["partialIndexes", "relationJoins"]
 }
 
 datasource db {
