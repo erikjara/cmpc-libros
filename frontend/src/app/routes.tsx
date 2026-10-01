@@ -35,6 +35,7 @@ export function createRoutes(queryClient: QueryClient): RouteObject[] {
             { path: 'books/:id', element: <BookDetailPage /> },
             { path: 'books/:id/edit', element: <BookFormPage /> },
             { path: 'trash', lazy: { Component: async () => (await import('@/features/trash/TrashPage')).TrashPage } },
+            { path: 'audit', lazy: { Component: async () => (await import('@/features/audit/AuditPage')).AuditPage } },
             { path: '*', element: <NotFoundPage /> },
           ],
         },

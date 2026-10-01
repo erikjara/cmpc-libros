@@ -1,4 +1,5 @@
 import { httpClient } from '@/lib/http-client'
+import { toQueryString } from '@/lib/query-string'
 import type {
   ApiResponse,
   Book,
@@ -10,13 +11,7 @@ import type {
   TrashListQuery,
 } from '@/lib/api-types'
 
-export function toQueryString(params: BookListQuery | BookFilters | TrashListQuery): string {
-  const search = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== '') search.set(key, String(value))
-  }
-  return search.toString()
-}
+export { toQueryString }
 
 export async function fetchBooks(query: BookListQuery): Promise<PaginatedResponse<Book[]>> {
   const response = await httpClient.get<PaginatedResponse<Book[]>>(`/books?${toQueryString(query)}`)

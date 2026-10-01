@@ -42,6 +42,12 @@ describe('rutas de la aplicación', () => {
     expect(screen.getByRole('button', { name: 'Cerrar sesión' })).toBeInTheDocument()
   })
 
+  it('muestra la auditoría en /audit dentro del layout', async () => {
+    renderApp('/audit')
+    expect(await screen.findByRole('heading', { name: 'Auditoría' })).toBeInTheDocument()
+    expect(await screen.findByText('16 registros · Página 1 de 2')).toBeInTheDocument()
+  })
+
   it('envía a /login sin sesión y vuelve a la ruta original tras iniciar sesión', async () => {
     db.sessionUser = null
     const { user, router } = renderApp('/books?page=2')
