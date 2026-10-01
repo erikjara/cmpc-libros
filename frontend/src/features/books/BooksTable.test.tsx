@@ -53,21 +53,45 @@ describe('BooksTable', () => {
     expect(sortParam()).toBeNull()
   })
 
-  it('agrega columnas al orden existente y muestra la prioridad', async () => {
+  it('un clic simple ordena solo por esa columna y reemplaza el orden existente', async () => {
+    const { user, sortParam, header } = renderTable('/books?sort=author:asc,price:desc')
+    await user.click(header('Título'))
+    expect(sortParam()).toBe('title:asc')
+  })
+
+  it('un clic simple sobre una columna del orden múltiple la deja como única', async () => {
+    const { user, sortParam, header } = renderTable('/books?sort=author:asc,price:asc')
+    await user.click(header('Precio'))
+    expect(sortParam()).toBe('price:desc')
+  })
+
+  it('Mayús + clic agrega columnas al orden existente y muestra la prioridad', async () => {
     const { user, sortParam, header } = renderTable()
     await user.click(header('Autor'))
+    await user.keyboard('{Shift>}')
     await user.click(header('Precio'))
     await user.click(header('Precio'))
+    await user.keyboard('{/Shift}')
     expect(sortParam()).toBe('author:asc,price:desc')
     expect(screen.getByLabelText('Prioridad 1, ascendente')).toBeInTheDocument()
     expect(screen.getByLabelText('Prioridad 2, descendente')).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: /Precio/ })).toHaveAttribute('aria-sort', 'descending')
   })
 
-  it('quitar una columna conserva el resto del orden', async () => {
+  it('Mayús + clic sobre una columna en desc la quita y conserva el resto del orden', async () => {
     const { user, sortParam, header } = renderTable('/books?sort=author:asc,price:desc')
+    await user.keyboard('{Shift>}')
     await user.click(header('Precio'))
+    await user.keyboard('{/Shift}')
     expect(sortParam()).toBe('author:asc')
+  })
+
+  it('indica cómo ordenar por varias columnas', () => {
+    const { header } = renderTable()
+    expect(screen.getByText('Mayús + clic para ordenar por varias columnas')).toBeInTheDocument()
+    const button = header('Precio')
+    expect(button).toHaveAttribute('title', 'Mayús + clic para ordenar por varias columnas')
+    expect(button).toHaveAccessibleDescription('Mayús + clic para ordenar por varias columnas')
   })
 
   it('ordenar vuelve a la página 1', async () => {
