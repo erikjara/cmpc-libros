@@ -82,8 +82,9 @@ soporte extendido) y la migración queda en el Roadmap.
 ### Índices
 
 - FKs `books.author_id`, `books.publisher_id`, `books.genre_id` (filtros frecuentes).
-- `books.deleted_at` (todas las consultas filtran `deleted_at IS NULL`).
-- `books.price`, `books.created_at` (ordenamiento).
+- Índices **parciales** `WHERE deleted_at IS NULL` sobre `books.created_at`, `books.title` y
+  `books.price` (ordenamiento del listado, que siempre excluye eliminados), declarados en el
+  schema con la preview feature `partialIndexes` de Prisma 7.
 - **GIN `pg_trgm`** sobre `books.title` y `authors.name`: la búsqueda en tiempo real usa
   `ILIKE '%texto%'`, que no puede usar B-tree. La extensión se habilita con SQL crudo en una
   migración (`CREATE EXTENSION IF NOT EXISTS pg_trgm`) y los índices se **declaran en
@@ -143,7 +144,7 @@ lo que hace el comportamiento visible y testeable.
 | GET | `/books/export` | Mismos filtros; CSV en streaming. Declarada antes de `/books/:id` |
 | GET | `/books/:id` | Detalle |
 | POST | `/books` | JSON; autor/editorial/género por `id` o por `name` (connectOrCreate) |
-| PATCH | `/books/:id` | Edición parcial |
+| PATCH | `/books/:id` | Edición parcial; `If-Match` opcional (concurrencia optimista, 412) |
 | DELETE | `/books/:id` | Soft delete, 204 |
 | POST | `/books/:id/restore` | Revierte el soft delete |
 | POST | `/books/:id/image` | Multipart; jpeg/png/webp, ≤ 2 MB, nombre UUID |
@@ -157,11 +158,19 @@ lo que hace el comportamiento visible y testeable.
 **Búsqueda:** `search` hace `ILIKE` sobre título y nombre de autor (apoyado en índices trigram).
 
 **Exportación CSV:** lectura por lotes con cursor, escrita a un stream (sin cargar todo en memoria),
-BOM UTF-8 para Excel, registra `EXPORT` en auditoría.
+BOM UTF-8, separador `;` y coma decimal (formato que espera Excel con configuración regional
+es-CL), registra `EXPORT` en auditoría.
+
+**Concurrencia optimista:** las respuestas de un libro llevan `ETag: "<updatedAt>"`. `PATCH` con
+`If-Match` compara dentro de la transacción (update condicional por `id` + `updatedAt`) y responde
+412 si el libro cambió. Un `PATCH` sin cambios efectivos no actualiza ni audita.
 
 ### Transversales
 
 - `TransformInterceptor`: respuestas `{ data, meta }`; no envuelve `StreamableFile`.
+- `ETagInterceptor`: agrega `ETag` a las respuestas de un libro.
+- `TimeoutInterceptor` global: 503 si una request supera `REQUEST_TIMEOUT_MS` (excluye exportación
+  y subida de imágenes).
 - Logging HTTP con `nestjs-pino` (pino-http): logs JSON por request con `requestId`, método, ruta,
   status y duración. Se usa el logger automático de pino-http y no un interceptor, porque un
   interceptor no registra las respuestas que se resuelven antes de llegar al controller (401 del
@@ -228,8 +237,8 @@ cuelgan de una ruta de layout protegida cuyo `loader` (`requireAuth`) valida la 
 - Búsqueda con debounce de 400 ms; cambiar búsqueda o filtros vuelve a página 1.
 - Filtros: género (select), editorial y autor (combobox con búsqueda en servidor), disponibilidad
   (todos / disponible / agotado), botón "Limpiar filtros".
-- Orden múltiple: clic en encabezado cicla asc → desc → sin orden y se agrega al orden existente;
-  badge de prioridad por columna.
+- Orden: clic en encabezado ordena solo por esa columna (asc → desc → sin orden); Mayús + clic la
+  agrega al orden múltiple; badge de prioridad por columna y pista visible.
 - Paginación del servidor; `placeholderData: keepPreviousData` para evitar parpadeo.
 - Skeleton de carga, estado vacío, botón "Exportar CSV": un enlace a `/api/books/export` con los
   filtros activos (la cookie de sesión viaja sola; no hace falta descargar un blob).
@@ -285,7 +294,8 @@ Excluidos: `src/components/ui/**`, `main.tsx`.
   - `db`: `postgres:18-alpine`, healthcheck, volumen persistente montado en `/var/lib/postgresql`
     (ruta que cambió en la imagen 18).
   - `backend`: Dockerfile multi-stage, usuario no root; al iniciar `prisma migrate deploy` →
-    seed idempotente (admin + ~60 libros) → `node dist/main`. Volumen `uploads`.
+    seed idempotente (admin siempre; ~60 libros de demostración solo con `SEED_DEMO_DATA=true` y
+    tabla vacía) → `node dist/main`. Volumen `uploads`.
     `depends_on` con `condition: service_healthy`.
   - `frontend`: build de Vite servido por nginx, que también hace reverse proxy de `/api` al
     backend (mismo origen, sin CORS en el despliegue).

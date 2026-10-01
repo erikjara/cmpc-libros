@@ -47,12 +47,12 @@ erDiagram
         uuid author_id FK "indexado"
         uuid publisher_id FK "indexado"
         uuid genre_id FK "indexado"
-        decimal price "Decimal(10,2), indexado"
+        decimal price "Decimal(10,2), índice parcial"
         int stock "CHECK stock >= 0"
         text image_key "nullable"
-        timestamp created_at "indexado"
+        timestamp created_at "índice parcial"
         timestamp updated_at
-        timestamp deleted_at "nullable, indexado (soft delete)"
+        timestamp deleted_at "nullable (soft delete)"
     }
 
     audit_logs {
@@ -112,11 +112,17 @@ El modelo está en tercera forma normal:
 
 ## Índices
 
+Los índices del listado son **parciales** (`WHERE deleted_at IS NULL`). Un índice suelto sobre
+`deleted_at` aporta poco porque casi todas las filas tienen `NULL`, y uno compuesto
+`(deleted_at, title)` todavía obliga a ordenar; el parcial es más pequeño (excluye eliminados) y
+ya está en el orden pedido. Se declaran en `schema.prisma` con la preview feature
+`partialIndexes` de Prisma 7 (`@@index([title], where: { deletedAt: null })`), por lo que no
+generan *drift* entre el esquema y las migraciones.
+
 | Índice | Tipo | Consulta que lo aprovecha |
 |---|---|---|
 | `books(author_id)`, `books(publisher_id)`, `books(genre_id)` | B-tree | Filtros del listado por autor, editorial y género. |
-| `books(deleted_at)` | B-tree | Todas las consultas filtran `deleted_at IS NULL`. |
-| `books(price)`, `books(created_at)` | B-tree | Ordenamiento del listado. |
+| `books(created_at)`, `books(title)`, `books(price)` `WHERE deleted_at IS NULL` | B-tree **parcial** | Listado ordenado: todas las consultas filtran `deleted_at IS NULL`, así que el índice solo contiene libros activos y entrega las filas ya ordenadas (`Index Scan`, sin `Sort`). |
 | `books(title)` | GIN `gin_trgm_ops` | Búsqueda `ILIKE '%texto%'` sobre el título. |
 | `authors(name)` | GIN `gin_trgm_ops` | Búsqueda `ILIKE '%texto%'` sobre el nombre del autor. |
 | `audit_logs(entity, entity_id)` | B-tree | Historial de un libro concreto. |

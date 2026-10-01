@@ -57,7 +57,7 @@ flowchart TD
         config["ConfigModule<br/>valida variables de entorno"]
         logger["LoggerModule<br/>nestjs-pino (pino-http)"]
         prisma["PrismaModule<br/>PrismaService global"]
-        common["common<br/>interceptor · filtro · decoradores"]
+        common["common<br/>interceptores · filtro · decoradores"]
         health["HealthModule<br/>GET /api/health"]
     end
 
@@ -95,7 +95,7 @@ flowchart TD
 | `audit` | Registro de auditoría dentro de la misma transacción que el cambio, y consulta paginada. |
 | `storage` | Interfaz `StorageService` inyectada por token; implementación en disco local. |
 | `health` | Chequeo de salud usado por Docker Compose. |
-| `common` | `TransformInterceptor`, `AllExceptionsFilter`, decoradores y utilidades de paginación. |
+| `common` | Interceptores (`TransformInterceptor`, `ETagInterceptor`, `TimeoutInterceptor`), `AllExceptionsFilter`, decoradores y utilidades de paginación. |
 
 ## Ciclo de vida de una request
 
@@ -198,6 +198,9 @@ Restaurar un libro que no está eliminado responde 200 con el libro y no genera 
 ### Respuestas y errores uniformes
 
 - Éxito: `{ data, meta? }` (lo aplica `TransformInterceptor`, salvo archivos en streaming y 204).
+  Las respuestas de un libro llevan además `ETag` (`ETagInterceptor`), que habilita la
+  concurrencia optimista con `If-Match` en `PATCH` (412 si el libro cambió).
+- Timeout: `TimeoutInterceptor` responde 503 si una request supera `REQUEST_TIMEOUT_MS`.
 - Error: `{ statusCode, error, message, path, timestamp, requestId }` (lo produce
   `AllExceptionsFilter`). El `requestId` coincide con el de los logs y el header `X-Request-Id`.
 

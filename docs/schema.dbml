@@ -68,9 +68,9 @@ Table books {
     author_id
     publisher_id
     genre_id
-    deleted_at
-    price
-    created_at
+    created_at [name: 'books_active_created_at_idx', note: 'Parcial: WHERE deleted_at IS NULL']
+    title [name: 'books_active_title_idx', note: 'Parcial: WHERE deleted_at IS NULL']
+    price [name: 'books_active_price_idx', note: 'Parcial: WHERE deleted_at IS NULL']
     title [type: gin, name: 'books_title_trgm_idx', note: 'gin_trgm_ops: búsqueda ILIKE']
   }
 }
