@@ -142,6 +142,7 @@ lo que hace el comportamiento visible y testeable.
 | GET | `/auth/me` | Usuario autenticado |
 | GET | `/books` | `page`, `limit` (máx. 100), `search`, `genreId`, `publisherId`, `authorId`, `available`, `sort` |
 | GET | `/books/export` | Mismos filtros; CSV en streaming. Declarada antes de `/books/:id` |
+| GET | `/books/trash` | Libros eliminados, paginados y con búsqueda (papelera) |
 | GET | `/books/:id` | Detalle |
 | POST | `/books` | JSON; autor/editorial/género por `id` o por `name` (connectOrCreate) |
 | PATCH | `/books/:id` | Edición parcial; `If-Match` opcional (concurrencia optimista, 412) |

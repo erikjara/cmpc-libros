@@ -1,5 +1,9 @@
 # CMPC-libros
 
+[![CI](https://github.com/erikjara/cmpc-libros/actions/workflows/ci.yml/badge.svg)](https://github.com/erikjara/cmpc-libros/actions/workflows/ci.yml)
+![Cobertura backend](https://img.shields.io/badge/cobertura%20backend-99%25-brightgreen)
+![Cobertura frontend](https://img.shields.io/badge/cobertura%20frontend-97%25-brightgreen)
+
 Aplicación web para gestionar el inventario de la tienda CMPC-libros. Permite mantener el
 catálogo de libros (título, autor, editorial, género, precio y stock), buscarlo y filtrarlo en
 tiempo real, cargar portadas, exportar el inventario a CSV y consultar la auditoría de cada
@@ -14,13 +18,16 @@ operación.
 - **Alta y edición** con validación en vivo, autor, editorial y género a elegir o crear en el
   mismo formulario, y carga de imagen de portada con vista previa.
 - **Detalle** del libro con su disponibilidad y precio en pesos chilenos.
-- **Eliminación reversible** (soft delete) con confirmación.
+- **Eliminación reversible** (soft delete): confirmación, acción "Deshacer" en el aviso y
+  **papelera** para consultar y restaurar libros eliminados.
 - **Exportación CSV** del listado con los filtros activos, en el formato que Excel espera con
   configuración regional chilena (`;` como separador y coma decimal).
 - **Auditoría** de altas, ediciones, eliminaciones, restauraciones, exportaciones e inicios de
-  sesión, registrada en la misma transacción que el cambio.
+  sesión, registrada en la misma transacción que el cambio y consultable en su propia vista con
+  un resumen legible de cada cambio.
 - **Edición concurrente segura:** si otra persona modificó el libro mientras lo editabas, el
   guardado se rechaza en vez de sobrescribir sus cambios.
+- **Diseño adaptable** a móvil (desde 360 px) y carga diferida de páginas.
 - **API REST documentada** con Swagger.
 
 ## Capturas
@@ -36,6 +43,17 @@ Listado con búsqueda, filtros, orden por varias columnas y paginación:
 | Alta con portada | Confirmación de eliminación |
 |---|---|
 | ![Formulario de alta con vista previa de la portada](docs/images/formulario.png) | ![Diálogo de confirmación de eliminación](docs/images/eliminar.png) |
+
+| Papelera | Auditoría |
+|---|---|
+| ![Papelera con libros eliminados y acción Restaurar](docs/images/papelera.png) | ![Vista de auditoría con el resumen de cada operación](docs/images/auditoria.png) |
+
+<img src="docs/images/movil.png" alt="Listado en un teléfono (360 px)" width="240" align="right">
+
+Vista móvil (360 px): filtros apilados, navegación compacta y tabla con desplazamiento propio,
+sin scroll horizontal de la página.
+
+<br clear="right">
 
 Documentación interactiva de la API:
 
@@ -208,7 +226,9 @@ Editar y Eliminar.
 ### Eliminar
 
 La eliminación pide confirmación y es reversible: el libro deja de aparecer en el listado, pero
-se conserva en la base de datos y la API permite restaurarlo con
+se conserva en la base de datos. El aviso de eliminación ofrece **"Deshacer"** durante unos
+segundos, y la sección **Papelera** lista los libros eliminados (con búsqueda, paginación y fecha de
+eliminación) y permite **restaurarlos**. Por API: `GET /api/books/trash` y
 `POST /api/books/:id/restore`.
 
 ### Exportar a CSV
@@ -222,8 +242,9 @@ se genera en streaming y queda registrada en la auditoría.
 ### Auditoría
 
 Cada alta, edición, eliminación, restauración, exportación e inicio de sesión queda registrada con
-el usuario, la IP, la fecha y, en los cambios, los valores anteriores y nuevos. Se consulta desde
-la API (por ejemplo, en Swagger):
+el usuario, la IP, la fecha y, en los cambios, los valores anteriores y nuevos. La sección
+**Auditoría** muestra el registro paginado, filtrable por entidad, con un resumen de cada operación
+(por ejemplo, "precio: $29.990 → $27.990 · stock: 11 → 7"). También se consulta por API:
 
 ```bash
 # Últimas operaciones
@@ -231,8 +252,6 @@ curl -b cookies.txt 'http://localhost:8080/api/audit-logs?limit=20'
 # Historial de un libro
 curl -b cookies.txt 'http://localhost:8080/api/audit-logs?entity=Book&entityId=<id-del-libro>'
 ```
-
-Una vista de auditoría en la interfaz está en el Roadmap.
 
 ### API y Swagger
 
@@ -386,6 +405,12 @@ Detalle completo:
 - **Etiquetas de filtros tras recargar.** La URL guarda el ID del autor o la editorial filtrados;
   al recargar, la etiqueta visible se resuelve con `GET /api/authors?limit=50` (o
   `/api/publishers`). Un endpoint por ID está en el Roadmap.
+- **Carga diferida por ruta** (`lazy` de React Router) y dependencias en chunks propios: el chunk
+  de entrada pasó de 849 kB a 87 kB y ningún archivo supera 500 kB. Las páginas que no se visitan
+  (formulario, detalle, papelera, auditoría) no se descargan al abrir el listado.
+- **Responsive sin librería extra:** grid de filtros de 1 a 5 columnas según el ancho, formulario
+  y detalle en una columna en móvil y tablas con desplazamiento horizontal dentro de su
+  contenedor, nunca de la página.
 - **Exportación como enlace directo.** "Exportar CSV" es una descarga nativa del navegador: con la
   sesión expirada, el navegador descarga la respuesta de error en lugar del archivo. La descarga
   con manejo de errores está en el Roadmap.
@@ -450,16 +475,30 @@ Resultado de `npm run test:cov` en la versión 1.0.0:
 
 | Aplicación | Tests | Sentencias | Ramas | Funciones | Líneas |
 |---|---|---|---|---|---|
-| Backend | 281 unitarios + 32 de integración | 99,29 % | 93,49 % | 98,87 % | 99,28 % |
-| Frontend | 192 | 95,97 % | 93,36 % | 95,63 % | 96,94 % |
+| Backend | 294 unitarios + 39 de integración | 99,30 % | 93,49 % | 98,90 % | 99,29 % |
+| Frontend | 253 | 96,63 % | 94,12 % | 96,30 % | 97,49 % |
 
 La cobertura se mide sobre los tests unitarios; los de integración (`npm run test:e2e`) se
 ejecutan aparte contra PostgreSQL.
 
+## Rendimiento
+
+Mediciones hechas durante el desarrollo sobre PostgreSQL 18 con datos sintéticos:
+
+| Consulta | Sin índice dedicado | Con índice parcial |
+|---|---|---|
+| Listado ordenado por título (`deleted_at IS NULL ORDER BY title LIMIT 10`), 200 000 libros | `Seq Scan` + `Sort` | `Index Scan` sobre `books_active_title_idx`, filas ya ordenadas |
+| Página de la papelera (`deleted_at IS NOT NULL ORDER BY deleted_at DESC`), 200 000 libros, 1 % eliminados | 6,2 ms | 0,1 ms (índice de 64 kB) |
+| Conteo de la papelera | 7,6 ms | 1,3 ms |
+
+En el frontend, la carga diferida por ruta redujo el chunk de entrada de 849 kB a 87 kB (React,
+Base UI y TanStack se cachean en chunks propios entre despliegues). La exportación CSV se genera
+en streaming por lotes, por lo que su memoria no crece con el inventario.
+
 ## Integración continua
 
 GitHub Actions (`.github/workflows/ci.yml`) se ejecuta en cada push y en cada pull request a
-`main`:
+`main`, sobre `ubuntu-24.04` fijo para que el resultado no cambie con las migraciones del runner:
 
 | Job | Pasos |
 |---|---|
@@ -479,7 +518,6 @@ Evoluciones previstas para próximas versiones, con su diseño propuesto:
 | Almacenamiento S3/MinIO | Nueva clase `S3StorageService implements StorageService`, seleccionada por variable de entorno |
 | Export masivo asíncrono | Cola BullMQ + Redis, job que genera el archivo y notifica/descarga por URL firmada |
 | Varios autores por libro | Tabla puente `book_authors (book_id, author_id, position)` |
-| Papelera en la UI | Vista de libros eliminados usando `POST /books/:id/restore` (endpoint ya existe) |
 | Portadas privadas | Servir las imágenes con URLs firmadas de vida corta (o desde S3 con URLs prefirmadas) en lugar de `/api/uploads` público, y retirar la portada al eliminar un libro |
 | Cliente tipado | `openapi-typescript` generado desde el Swagger del backend |
 | Tests e2e de interfaz | Playwright contra el stack de Docker Compose en CI (login, listado, alta con imagen, eliminación) |
@@ -491,7 +529,7 @@ Evoluciones previstas para próximas versiones, con su diseño propuesto:
 | Catálogos por ID | `GET /api/authors/:id` (y equivalentes) o `?ids=` en los listados, para resolver las etiquetas de los filtros sin traer 50 registros |
 | Revocación de sesiones | Columna `token_version` en `users` incluida en el JWT y verificada por la estrategia: el logout (o un cambio de contraseña) la incrementa e invalida los tokens emitidos antes, sin esperar su expiración |
 | Gestión de catálogos | Pantalla para renombrar o fusionar autores, editoriales y géneros, y ocultar de los filtros los que no tienen libros activos |
-| Vista de auditoría | Página en la interfaz sobre `GET /api/audit-logs` con filtros por entidad, usuario y fecha |
+| Auditoría avanzada | Filtros por usuario y rango de fechas, y enlace desde cada registro al libro afectado |
 | Exportación con manejo de errores | Descarga vía `fetch` + `Blob` con `withCredentials`: ante un 401 redirige al login y ante otros errores muestra un aviso, en lugar de descargar el cuerpo del error |
 
 ## Estructura del repositorio
