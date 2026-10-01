@@ -473,8 +473,8 @@ Resultado de `npm run test:cov`:
 
 | Aplicación | Tests | Sentencias | Ramas | Funciones | Líneas |
 |---|---|---|---|---|---|
-| Backend | 285 unitarios + 38 de integración | 99,29 % | 93,71 % | 98,88 % | 99,28 % |
-| Frontend | 253 | 96,63 % | 94,12 % | 96,30 % | 97,49 % |
+| Backend | 296 unitarios + 39 de integración | 99,29 % | 93,71 % | 98,88 % | 99,28 % |
+| Frontend | 271 | 96,64 % | 94,60 % | 96,41 % | 97,61 % |
 
 La cobertura se mide sobre los tests unitarios; los de integración (`npm run test:e2e`) se
 ejecutan aparte contra PostgreSQL.

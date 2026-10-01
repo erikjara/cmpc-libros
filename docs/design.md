@@ -244,7 +244,7 @@ sesión con `/auth/me` antes de renderizar. Las páginas secundarias se cargan d
 - Estado (página, filtros, búsqueda, orden) **en la URL** vía `useSearchParams`: compartible,
   sobrevive a recargas y es el `queryKey` de TanStack Query.
 - Búsqueda con debounce de 400 ms; cambiar búsqueda o filtros vuelve a página 1.
-- Filtros: género (select), editorial y autor (combobox con búsqueda en servidor), disponibilidad
+- Filtros: género, editorial y autor (combobox con búsqueda en servidor), disponibilidad
   (todos / disponible / agotado), botón "Limpiar filtros".
 - Orden: clic en encabezado ordena solo por esa columna (asc → desc → sin orden); Mayús + clic la
   agrega al orden múltiple; badge de prioridad por columna y pista visible.
