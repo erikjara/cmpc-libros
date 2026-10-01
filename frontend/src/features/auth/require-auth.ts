@@ -1,6 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { redirect, type LoaderFunctionArgs } from 'react-router'
-import { ApiError } from '@/lib/api-error'
 import { sessionQueryOptions } from './session'
 
 export function buildLoginPath(redirectTo: string): string {
@@ -22,25 +21,20 @@ export function safeRedirectTarget(value: string | null): string {
 
 export function createRequireAuthLoader(queryClient: QueryClient) {
   return async function requireAuth({ request }: LoaderFunctionArgs) {
-    try {
-      return await queryClient.ensureQueryData(sessionQueryOptions)
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        const url = new URL(request.url)
-        throw redirect(buildLoginPath(`${url.pathname}${url.search}`))
-      }
-      throw error
+    const user = await queryClient.ensureQueryData(sessionQueryOptions)
+    if (!user) {
+      const url = new URL(request.url)
+      throw redirect(buildLoginPath(`${url.pathname}${url.search}`))
     }
+    return user
   }
 }
 
 export function createRedirectIfAuthenticatedLoader(queryClient: QueryClient) {
   return async function redirectIfAuthenticated({ request }: LoaderFunctionArgs) {
-    try {
-      await queryClient.ensureQueryData(sessionQueryOptions)
-    } catch {
-      return null
-    }
+    // Si no se puede comprobar la sesión (p. ej. error de red) se muestra el formulario igualmente.
+    const user = await queryClient.ensureQueryData(sessionQueryOptions).catch(() => null)
+    if (!user) return null
     const url = new URL(request.url)
     throw redirect(safeRedirectTarget(url.searchParams.get('redirectTo')))
   }
