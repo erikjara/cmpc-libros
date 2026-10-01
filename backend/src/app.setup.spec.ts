@@ -97,6 +97,14 @@ describe('configureApp', () => {
     expect(response.headers['access-control-allow-credentials']).toBe('true');
   });
 
+  it('expone el header ETag al frontend (CORS)', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/ping')
+      .set('Origin', 'http://localhost:5173')
+      .expect(200);
+    expect(response.headers['access-control-expose-headers']).toBe('ETag');
+  });
+
   it('sirve las imágenes subidas bajo /api/uploads', async () => {
     const response = await request(app.getHttpServer())
       .get('/api/uploads/portada.png')

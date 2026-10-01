@@ -24,7 +24,10 @@ class DocsTarget {
   @ApiDataResponse(ItemDto, { paginated: true })
   paginated() {}
 
-  @ApiErrors(400, 404, 999)
+  @ApiDataResponse(ItemDto, { etag: true })
+  versioned() {}
+
+  @ApiErrors(400, 404, 412, 999)
   failing() {}
 }
 
@@ -50,6 +53,13 @@ describe('ApiDataResponse', () => {
     expect(response.schema.properties.data.type).toBe('array');
   });
 
+  it('documenta el header ETag solo si se pide', () => {
+    expect(responses('versioned')['200'].headers.ETag.schema.type).toBe(
+      'string',
+    );
+    expect(responses('single')['200'].headers).toBeUndefined();
+  });
+
   it('documenta { data, meta } en respuestas paginadas', () => {
     const schema = responses('paginated')['200'].schema;
     expect(schema.required).toEqual(['data', 'meta']);
@@ -62,7 +72,8 @@ describe('ApiDataResponse', () => {
 describe('ApiErrors', () => {
   it('documenta cada status con el cuerpo de error uniforme', () => {
     const documented = responses('failing');
-    expect(Object.keys(documented)).toEqual(['400', '404', '999']);
+    expect(Object.keys(documented)).toEqual(['400', '404', '412', '999']);
+    expect(documented['412'].description).toMatch(/If-Match/);
     expect(documented['404'].type).toBe(ApiErrorBodyDto);
     expect(documented['999'].description).toBe('Error');
   });
